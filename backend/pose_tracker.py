@@ -1,9 +1,8 @@
 """
-Real-time pose + hand tracking using MediaPipe Pose & Hand Landmarkers.
+GymBuddy – Real-time pose + hand tracking with voice-controlled exercise coaching.
 
-Opens the webcam feed, detects 33 body landmarks and 21 hand landmarks
-per hand, and renders annotated skeleton / finger overlays with joint
-names and confidence indicators.  Press 'q' to quit.
+Main container that handles webcam, MediaPipe detection, rendering, voice
+commands, and delegates exercise-specific analysis to modules in exercises/.
 """
 
 import time
@@ -13,6 +12,20 @@ import numpy as np
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
+
+from exercises import (
+    COLOR_GOOD, COLOR_WARN, COLOR_TEXT, COLOR_HUD, draw_live_alerts,
+)
+from exercises.bicep_curl import (
+    CurlTracker,
+    update_trackers as update_curl_trackers,
+    draw_panel as draw_curl_panel,
+)
+from exercises.lateral_raise import (
+    LateralRaiseTracker,
+    update_trackers as update_raise_trackers,
+    draw_panel as draw_raise_panel,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -50,25 +63,23 @@ LANDMARK_NAMES = [
     "left foot index", "right foot index",
 ]
 
-# Pairs of landmark indices that form the skeleton edges.
 POSE_CONNECTIONS = [
-    (0, 1), (1, 2), (2, 3), (3, 7),     # left eye -> left ear
-    (0, 4), (4, 5), (5, 6), (6, 8),     # right eye -> right ear
-    (9, 10),                              # mouth
-    (11, 12),                             # shoulders
-    (11, 13), (13, 15),                   # left arm
-    (12, 14), (14, 16),                   # right arm
-    (15, 17), (15, 19), (15, 21),         # left hand
-    (16, 18), (16, 20), (16, 22),         # right hand
-    (11, 23), (12, 24),                   # torso sides
-    (23, 24),                             # hips
-    (23, 25), (25, 27),                   # left leg
-    (24, 26), (26, 28),                   # right leg
-    (27, 29), (29, 31),                   # left foot
-    (28, 30), (30, 32),                   # right foot
+    (0, 1), (1, 2), (2, 3), (3, 7),
+    (0, 4), (4, 5), (5, 6), (6, 8),
+    (9, 10),
+    (11, 12),
+    (11, 13), (13, 15),
+    (12, 14), (14, 16),
+    (15, 17), (15, 19), (15, 21),
+    (16, 18), (16, 20), (16, 22),
+    (11, 23), (12, 24),
+    (23, 24),
+    (23, 25), (25, 27),
+    (24, 26), (26, 28),
+    (27, 29), (29, 31),
+    (28, 30), (30, 32),
 ]
 
-# Hand landmark indices.
 HAND_LANDMARK_NAMES = [
     "wrist",
     "thumb cmc", "thumb mcp", "thumb ip", "thumb tip",
@@ -79,17 +90,11 @@ HAND_LANDMARK_NAMES = [
 ]
 
 HAND_CONNECTIONS = [
-    # Thumb
     (0, 1), (1, 2), (2, 3), (3, 4),
-    # Index
     (0, 5), (5, 6), (6, 7), (7, 8),
-    # Middle
     (0, 9), (9, 10), (10, 11), (11, 12),
-    # Ring
     (0, 13), (13, 14), (14, 15), (15, 16),
-    # Pinky
     (0, 17), (17, 18), (18, 19), (19, 20),
-    # Palm
     (5, 9), (9, 13), (13, 17),
 ]
 
@@ -97,19 +102,12 @@ HAND_FINGERTIP_LABELS = {
     4: "thumb", 8: "index", 12: "middle", 16: "ring", 20: "pinky",
 }
 
-# Color palette (BGR)
 COLOR_JOINT = (0, 255, 128)
 COLOR_BONE = (255, 200, 50)
 COLOR_LOW_CONF = (0, 0, 255)
-COLOR_TEXT = (255, 255, 255)
-COLOR_HUD = (40, 40, 40)
-COLOR_HAND_LEFT = (255, 120, 50)    # blue-ish for left hand
-COLOR_HAND_RIGHT = (50, 200, 255)   # orange-ish for right hand
+COLOR_HAND_LEFT = (255, 120, 50)
+COLOR_HAND_RIGHT = (50, 200, 255)
 COLOR_HAND_BONE = (220, 220, 220)
-
-COLOR_GOOD = (0, 220, 0)
-COLOR_WARN = (0, 180, 255)
-COLOR_BAD = (0, 0, 255)
 
 VISIBILITY_THRESHOLD = 0.5
 PRESENCE_THRESHOLD = 0.5
@@ -117,7 +115,6 @@ JOINT_RADIUS = 6
 HAND_JOINT_RADIUS = 4
 BONE_THICKNESS = 2
 
-# Key joints to label on screen to reduce clutter.
 LABELED_JOINTS = {
     0: "nose",
     11: "L shoulder", 12: "R shoulder",
@@ -134,7 +131,6 @@ LABELED_JOINTS = {
 
 
 def download_model(url: str, dest: str) -> None:
-    """Download the model bundle if it doesn't already exist."""
     import pathlib
     if pathlib.Path(dest).exists():
         return
@@ -149,7 +145,6 @@ def download_model(url: str, dest: str) -> None:
 
 
 def angle_between(a, b, c) -> float:
-    """Return the angle (degrees) at joint *b* formed by points a-b-c."""
     ba = np.array([a.x - b.x, a.y - b.y])
     bc = np.array([c.x - b.x, c.y - b.y])
     cos_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-8)
@@ -157,11 +152,6 @@ def angle_between(a, b, c) -> float:
 
 
 def torso_lean_angle(landmarks) -> float | None:
-    """Return how many degrees the torso leans from vertical.
-
-    Uses the midpoint of shoulders (11,12) and hips (23,24).
-    Returns None if landmarks aren't visible enough.
-    """
     ids = (11, 12, 23, 24)
     if any(landmarks[i].visibility is None or landmarks[i].visibility < VISIBILITY_THRESHOLD
            for i in ids):
@@ -174,560 +164,23 @@ def torso_lean_angle(landmarks) -> float | None:
         (landmarks[23].x + landmarks[24].x) / 2,
         (landmarks[23].y + landmarks[24].y) / 2,
     ])
-    torso = mid_sh - mid_hp  # points upward (y decreases)
+    torso = mid_sh - mid_hp
     vertical = np.array([0.0, -1.0])
     cos_a = np.dot(torso, vertical) / (np.linalg.norm(torso) + 1e-8)
     return math.degrees(math.acos(np.clip(cos_a, -1.0, 1.0)))
 
 
 # ---------------------------------------------------------------------------
-# Bicep-curl tracker
+# Skeleton / hand drawing
 # ---------------------------------------------------------------------------
-
-# Feedback severity levels used for coloring and priority ordering.
-SEV_GOOD = "good"
-SEV_INFO = "info"
-SEV_WARN = "warn"
-SEV_BAD = "bad"
-
-SEV_PRIORITY = {SEV_BAD: 0, SEV_WARN: 1, SEV_INFO: 2, SEV_GOOD: 3}
-
-SEV_COLORS = {
-    SEV_GOOD: COLOR_GOOD,
-    SEV_INFO: COLOR_TEXT,
-    SEV_WARN: COLOR_WARN,
-    SEV_BAD: COLOR_BAD,
-}
-
-
-class CurlTracker:
-    """Tracks bicep-curl reps and form for one arm.
-
-    Form checks
-    -----------
-    1. Elbow pinning       – upper arm should stay at the side of the torso.
-    2. Body lean           – torso should stay upright, no swaying to cheat.
-    3. ROM (top)           – full contraction at the peak of the curl.
-    4. ROM (bottom)        – full extension at the bottom of the curl.
-    5. Wrist alignment     – wrist should stay neutral, not curled or bent.
-    6. Shoulder shrug      – traps should stay relaxed, shoulder not hiking up.
-    7. Elbow flare         – elbow should not drift out laterally from the hip.
-    8. Tempo (concentric)  – lifting phase should be controlled (~1-2 s).
-    9. Tempo (eccentric)   – lowering phase should be slow and controlled (~2-3 s).
-    """
-
-    PHASE_DOWN = "down"
-    PHASE_UP = "up"
-
-    CURL_TOP = 60
-    CURL_BOTTOM = 140
-
-    # --- Scoring weights (should sum to ~100) ---
-    W_ELBOW_PIN = 20
-    W_LEAN = 15
-    W_ROM_TOP = 10
-    W_ROM_BOTTOM = 10
-    W_WRIST = 10
-    W_SHRUG = 10
-    W_FLARE = 10
-    W_TEMPO_CON = 7
-    W_TEMPO_ECC = 8
-    W_SUPINATION = 10
-
-    # --- Thresholds ---
-    # Shoulder swing (elbow-shoulder-hip angle)
-    SWING_OK = 15
-    SWING_WARN = 30
-    SWING_BAD = 45
-
-    # Body lean (degrees from vertical)
-    LEAN_OK = 10
-    LEAN_WARN = 18
-    LEAN_BAD = 28
-
-    # ROM
-    ROM_TOP_GOOD = 50
-    ROM_TOP_OK = 70
-    ROM_BOTTOM_GOOD = 155
-    ROM_BOTTOM_OK = 130
-
-    # Wrist deviation from straight (180°)
-    WRIST_DEV_OK = 15
-    WRIST_DEV_WARN = 30
-
-    # Shoulder shrug: when vertical distance between shoulder and ear
-    # drops below this fraction of the reference distance, it's a shrug.
-    SHRUG_RATIO_WARN = 0.65
-
-    # Elbow flare: lateral distance (normalized coords) elbow vs hip.
-    FLARE_OK = 0.05
-    FLARE_WARN = 0.09
-
-    # Supination: palm cross-vector ratio [-1 pronated, 0 neutral, +1 supinated].
-    SUP_GOOD = 0.35       # above this = properly supinated
-    SUP_NEUTRAL = 0.05    # below this = too neutral / hammer grip
-
-    # Tempo (seconds)
-    CON_MIN = 0.6
-    CON_MAX = 3.0
-    ECC_MIN = 1.0
-    ECC_MAX = 4.5
-
-    # How long an alert lingers after the issue stops being detected,
-    # to avoid single-frame flicker.
-    LIVE_GRACE = 0.35
-
-    def __init__(self, side: str):
-        self.side = side
-        self.phase = self.PHASE_DOWN
-        self.reps = 0
-
-        # Per-rep accumulators
-        self._min_elbow = 180.0
-        self._max_elbow = 0.0
-        self._peak_swing = 0.0
-        self._peak_lean = 0.0
-        self._peak_wrist_dev = 0.0
-        self._peak_flare = 0.0
-        self._shrug_detected = False
-        self._min_supination: float = 1.0
-        self._phase_start: float = 0.0
-        self._con_time: float = 0.0
-
-        # Reference shoulder-ear distance (calibrated from first few frames).
-        self._ref_sh_ear: float = 0.0
-        self._sh_ear_samples: list[float] = []
-
-        # Current elbow angle for progress display
-        self.cur_elbow: float = 180.0
-
-        # Live alerts: {message: (severity, last_triggered_time)}
-        self._live_triggers: dict[str, tuple[str, float]] = {}
-
-        # End-of-rep results
-        self.active_feedback: list[tuple[str, str]] = []
-        self._feedback_expiry: float = 0.0
-        self.last_score: int = 0
-        self.rep_scores: list[int] = []
-
-        # Speech queue (consumed one at a time by main loop)
-        self._speech_queue: list[str] = []
-
-    # ----- public API -----
-
-    def update(
-        self,
-        elbow_angle: float,
-        shoulder_angle: float,
-        body_lean: float | None,
-        wrist_angle: float | None,
-        shoulder_ear_dist: float | None,
-        elbow_flare_dist: float | None,
-        supination: float | None,
-        now: float,
-    ) -> None:
-        self.cur_elbow = elbow_angle
-        self._min_elbow = min(self._min_elbow, elbow_angle)
-        self._max_elbow = max(self._max_elbow, elbow_angle)
-        self._peak_swing = max(self._peak_swing, shoulder_angle)
-
-        if body_lean is not None:
-            self._peak_lean = max(self._peak_lean, body_lean)
-
-        wrist_dev = 0.0
-        if wrist_angle is not None:
-            wrist_dev = abs(180.0 - wrist_angle)
-            self._peak_wrist_dev = max(self._peak_wrist_dev, wrist_dev)
-
-        if elbow_flare_dist is not None:
-            self._peak_flare = max(self._peak_flare, elbow_flare_dist)
-
-        if supination is not None:
-            self._min_supination = min(self._min_supination, supination)
-
-        self._update_shrug_ref(shoulder_ear_dist)
-
-        # --- Live mid-rep alerts (appear/disappear in real time) ---
-        if shoulder_angle > self.SWING_BAD:
-            self._trigger("Pin elbow to side!", SEV_BAD, now)
-        elif shoulder_angle > self.SWING_WARN:
-            self._trigger("Elbow drifting", SEV_WARN, now)
-
-        if body_lean is not None:
-            if body_lean > self.LEAN_BAD:
-                self._trigger("Stop leaning back!", SEV_BAD, now)
-            elif body_lean > self.LEAN_WARN:
-                self._trigger("Brace your core", SEV_WARN, now)
-
-        # if wrist_dev > self.WRIST_DEV_WARN:
-        #     self._trigger("Straighten wrist!", SEV_WARN, now)
-
-        if self._shrug_detected:
-            self._trigger("Relax traps!", SEV_WARN, now)
-
-        if elbow_flare_dist is not None and elbow_flare_dist > self.FLARE_WARN:
-            self._trigger("Tuck elbow in!", SEV_WARN, now)
-
-        if supination is not None and supination < self.SUP_NEUTRAL:
-            self._trigger("Supinate - rotate palm up!", SEV_WARN, now)
-
-        # Phase transitions
-        if self.phase == self.PHASE_DOWN and elbow_angle < self.CURL_TOP:
-            self.phase = self.PHASE_UP
-            self._con_time = now - self._phase_start if self._phase_start else 0.0
-            self._phase_start = now
-        elif self.phase == self.PHASE_UP and elbow_angle > self.CURL_BOTTOM:
-            ecc_time = now - self._phase_start if self._phase_start else 0.0
-            self._finish_rep(now, ecc_time)
-
-    # --- Live alert helpers ---
-
-    def _trigger(self, msg: str, sev: str, now: float) -> None:
-        self._live_triggers[msg] = (sev, now)
-
-    def get_live_alerts(self, now: float) -> list[tuple[str, str]]:
-        """Return alerts that are currently active or within the grace window."""
-        active = []
-        expired_keys = []
-        for msg, (sev, last_t) in self._live_triggers.items():
-            if now - last_t <= self.LIVE_GRACE:
-                active.append((msg, sev))
-            else:
-                expired_keys.append(msg)
-        for k in expired_keys:
-            del self._live_triggers[k]
-        return active
-
-    def get_feedback(self, now: float) -> list[tuple[str, str]]:
-        if now < self._feedback_expiry:
-            return self.active_feedback
-        return []
-
-    def take_speech(self) -> str | None:
-        """Pop and return the next queued spoken issue, or None."""
-        if self._speech_queue:
-            return self._speech_queue.pop(0)
-        return None
-
-    @staticmethod
-    def _build_speech_queue(
-        issues: list[tuple[str, str]],
-    ) -> list[str]:
-        """Return individual spoken strings, most critical first."""
-        voiced = [msg for msg, sev in issues if sev in (SEV_BAD, SEV_WARN)]
-        return voiced if voiced else ["Good job!"]
-
-    @property
-    def avg_score(self) -> float:
-        return sum(self.rep_scores) / len(self.rep_scores) if self.rep_scores else 0.0
-
-    @property
-    def progress(self) -> float:
-        """0.0 = fully extended, 1.0 = fully curled."""
-        raw = 1.0 - (self.cur_elbow - self.CURL_TOP) / max(
-            self.CURL_BOTTOM - self.CURL_TOP, 1
-        )
-        return float(np.clip(raw, 0.0, 1.0))
-
-    # ----- internals -----
-
-    def _update_shrug_ref(self, sh_ear: float | None) -> None:
-        if sh_ear is None or sh_ear < 0.01:
-            return
-        if len(self._sh_ear_samples) < 30:
-            self._sh_ear_samples.append(sh_ear)
-            self._ref_sh_ear = max(self._sh_ear_samples)
-        elif self._ref_sh_ear > 0 and sh_ear < self._ref_sh_ear * self.SHRUG_RATIO_WARN:
-            self._shrug_detected = True
-
-    def _finish_rep(self, now: float, ecc_time: float) -> None:
-        self.phase = self.PHASE_DOWN
-        self.reps += 1
-        self._phase_start = now
-
-        score = 100
-        issues: list[tuple[str, str]] = []
-
-        # 1. Elbow pinning
-        if self._peak_swing > self.SWING_BAD:
-            issues.append(("Elbow swinging a lot - pin it to your side", SEV_BAD))
-            score -= self.W_ELBOW_PIN
-        elif self._peak_swing > self.SWING_WARN:
-            issues.append(("Elbow drifting forward - keep it pinned", SEV_WARN))
-            score -= self.W_ELBOW_PIN // 2
-        elif self._peak_swing > self.SWING_OK:
-            issues.append(("Slight elbow drift - try to keep it tighter", SEV_INFO))
-            score -= self.W_ELBOW_PIN // 4
-
-        # 2. Body lean
-        if self._peak_lean > self.LEAN_BAD:
-            issues.append(("Too much body lean - you're using momentum", SEV_BAD))
-            score -= self.W_LEAN
-        elif self._peak_lean > self.LEAN_WARN:
-            issues.append(("Leaning back a bit - brace your core", SEV_WARN))
-            score -= self.W_LEAN // 2
-        elif self._peak_lean > self.LEAN_OK:
-            issues.append(("Minor torso sway detected", SEV_INFO))
-            score -= self.W_LEAN // 4
-
-        # 3. ROM top (peak contraction)
-        if self._min_elbow > self.ROM_TOP_OK:
-            issues.append(("Curl higher - squeeze at the top", SEV_WARN))
-            score -= self.W_ROM_TOP
-        elif self._min_elbow > self.ROM_TOP_GOOD:
-            issues.append(("Almost full contraction - try to squeeze more", SEV_INFO))
-            score -= self.W_ROM_TOP // 2
-
-        # 4. ROM bottom (full extension)
-        if self._max_elbow < self.ROM_BOTTOM_OK:
-            issues.append(("Extend your arm more at the bottom", SEV_WARN))
-            score -= self.W_ROM_BOTTOM
-        elif self._max_elbow < self.ROM_BOTTOM_GOOD:
-            issues.append(("Slightly short extension - straighten a bit more", SEV_INFO))
-            score -= self.W_ROM_BOTTOM // 2
-
-        # 5. Wrist alignment (disabled – too noisy with current model)
-        # if self._peak_wrist_dev > self.WRIST_DEV_WARN:
-        #     issues.append(("Keep wrist straight - don't curl your wrist", SEV_WARN))
-        #     score -= self.W_WRIST
-        # elif self._peak_wrist_dev > self.WRIST_DEV_OK:
-        #     issues.append(("Slight wrist bend - keep it neutral", SEV_INFO))
-        #     score -= self.W_WRIST // 2
-
-        # 6. Shoulder shrug
-        if self._shrug_detected:
-            issues.append(("Shoulder hiking up - relax your traps", SEV_WARN))
-            score -= self.W_SHRUG
-
-        # 7. Elbow flare
-        if self._peak_flare > self.FLARE_WARN:
-            issues.append(("Elbow flaring out - keep it tucked in", SEV_WARN))
-            score -= self.W_FLARE
-        elif self._peak_flare > self.FLARE_OK:
-            issues.append(("Slight elbow flare - tuck it closer", SEV_INFO))
-            score -= self.W_FLARE // 2
-
-        # 8. Supination
-        if self._min_supination < self.SUP_NEUTRAL:
-            issues.append(("Rotate palm up - supinate your grip", SEV_WARN))
-            score -= self.W_SUPINATION
-        elif self._min_supination < self.SUP_GOOD:
-            issues.append(("Grip slightly neutral - supinate more", SEV_INFO))
-            score -= self.W_SUPINATION // 2
-
-        # 9. Tempo concentric
-        if self._con_time > 0:
-            if self._con_time < self.CON_MIN:
-                issues.append(("Lifting too fast - slow down", SEV_WARN))
-                score -= self.W_TEMPO_CON
-            elif self._con_time > self.CON_MAX:
-                issues.append(("Lifting too slow - may lose tension", SEV_WARN))
-                score -= self.W_TEMPO_CON // 2
-
-        # 9. Tempo eccentric
-        if ecc_time > 0:
-            if ecc_time < self.ECC_MIN:
-                issues.append(("Lowering too fast - control the negative", SEV_WARN))
-                score -= self.W_TEMPO_ECC
-            elif ecc_time > self.ECC_MAX:
-                issues.append(("Lowering too slow", SEV_WARN))
-                score -= self.W_TEMPO_ECC // 3
-
-        score = max(score, 0)
-        self.last_score = score
-        self.rep_scores.append(score)
-
-        # Sort issues: most severe first.
-        issues.sort(key=lambda x: SEV_PRIORITY.get(x[1], 99))
-
-        if not issues:
-            self.active_feedback = [("Perfect rep!", SEV_GOOD)]
-        else:
-            self.active_feedback = issues
-        self._feedback_expiry = now + 5.0
-
-        self._speech_queue = self._build_speech_queue(issues)
-
-        # Reset accumulators
-        self._peak_swing = 0.0
-        self._peak_lean = 0.0
-        self._min_elbow = 180.0
-        self._max_elbow = 0.0
-        self._peak_wrist_dev = 0.0
-        self._peak_flare = 0.0
-        self._shrug_detected = False
-        self._min_supination = 1.0
-        self._con_time = 0.0
-
-
-def _score_color(score: int) -> tuple[int, int, int]:
-    if score >= 85:
-        return COLOR_GOOD
-    if score >= 60:
-        return COLOR_WARN
-    return COLOR_BAD
-
-
-def _draw_progress_bar(
-    frame: np.ndarray, x: int, y: int, w: int, h: int,
-    progress: float, color: tuple[int, int, int],
-) -> None:
-    cv2.rectangle(frame, (x, y), (x + w, y + h), (80, 80, 80), -1)
-    fill_w = int(w * np.clip(progress, 0, 1))
-    if fill_w > 0:
-        cv2.rectangle(frame, (x, y), (x + fill_w, y + h), color, -1)
-    cv2.rectangle(frame, (x, y), (x + w, y + h), (160, 160, 160), 1)
-
-
-def draw_live_alerts(
-    frame: np.ndarray,
-    trackers: dict[str, CurlTracker],
-    now: float,
-) -> None:
-    """Render big mid-rep warning banners across the center of the frame."""
-    fh, fw = frame.shape[:2]
-    alerts: list[tuple[str, str]] = []
-    for side in ("L", "R"):
-        for msg, sev in trackers[side].get_live_alerts(now):
-            tag = f"{side}: {msg}"
-            if (tag, sev) not in alerts:
-                alerts.append((tag, sev))
-
-    if not alerts:
-        return
-
-    banner_h = 52
-    total_h = banner_h * len(alerts)
-    start_y = fh // 2 - total_h // 2
-
-    # Draw all banner backgrounds on a single overlay, then blend once.
-    overlay = frame.copy()
-    for i, (_msg, sev) in enumerate(alerts):
-        y = start_y + i * banner_h
-        bg = (0, 0, 80) if sev == SEV_BAD else (0, 50, 80)
-        cv2.rectangle(overlay, (0, y), (fw, y + banner_h), bg, -1)
-    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
-
-    # Draw text on top of the blended frame.
-    for i, (msg, sev) in enumerate(alerts):
-        y = start_y + i * banner_h
-        color = SEV_COLORS.get(sev, COLOR_WARN)
-        text_size = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
-        tx = (fw - text_size[0]) // 2
-        ty = y + (banner_h + text_size[1]) // 2
-        cv2.putText(
-            frame, msg, (tx, ty),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2, cv2.LINE_AA,
-        )
-
-
-def draw_curl_panel(
-    frame: np.ndarray,
-    trackers: dict[str, CurlTracker],
-    angles: dict,
-    now: float,
-) -> None:
-    """Draw the bicep-curl feedback panel on the left side of the frame."""
-    fh, fw = frame.shape[:2]
-    overlay = frame.copy()
-
-    pad = 14
-    line_h = 28
-    bar_h = 14
-    col_x = pad
-    box_w = 380
-
-    # Pre-compute all lines so we know the box height.
-    # Each entry: ("text", color, is_bar, bar_progress, bar_color)
-    entries: list[tuple] = []
-
-    def text(msg, color=COLOR_TEXT, scale=0.55, bold=False):
-        entries.append(("text", msg, color, scale, bold))
-
-    def bar(progress, color):
-        entries.append(("bar", "", color, progress, False))
-
-    def spacer():
-        entries.append(("spacer", "", COLOR_TEXT, 0, False))
-
-    text("BICEP CURL COACH", COLOR_TEXT, 0.7, True)
-    spacer()
-
-    for side in ("L", "R"):
-        t = trackers[side]
-        elbow_key = f"{side} elbow"
-
-        # Header with score
-        if t.reps > 0:
-            sc = t.last_score
-            text(
-                f"{side} ARM   Reps: {t.reps}   Score: {sc}",
-                _score_color(sc), 0.55, True,
-            )
-        else:
-            text(f"{side} ARM   Reps: 0", COLOR_TEXT, 0.55, True)
-
-        # Progress bar
-        bar(t.progress, COLOR_GOOD if t.progress > 0.7 else COLOR_WARN)
-
-        # Elbow angle
-        elbow_val = angles.get(elbow_key)
-        if elbow_val is not None:
-            text(f"  Elbow: {elbow_val:.0f} deg   Phase: {t.phase}")
-
-        # Average score
-        if t.reps >= 2:
-            text(f"  Avg score: {t.avg_score:.0f}   Best: {max(t.rep_scores)}", (180, 180, 180))
-
-        # Feedback
-        fb = t.get_feedback(now)
-        if fb:
-            for msg, sev in fb:
-                prefix = "  " if sev == SEV_GOOD else "  ! "
-                text(f"{prefix}{msg}", SEV_COLORS.get(sev, COLOR_TEXT))
-        elif t.reps == 0:
-            text("  Waiting for curl...", (120, 120, 120))
-
-        spacer()
-
-    # Compute box height
-    total_h = pad * 2
-    for kind, *_ in entries:
-        if kind == "bar":
-            total_h += bar_h + 6
-        elif kind == "spacer":
-            total_h += 8
-        else:
-            total_h += line_h
-
-    cv2.rectangle(overlay, (0, 0), (box_w, total_h), COLOR_HUD, -1)
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-
-    y = pad
-    for kind, msg, color, extra, bold in entries:
-        if kind == "text":
-            y += line_h
-            cv2.putText(
-                frame, msg, (col_x, y),
-                cv2.FONT_HERSHEY_SIMPLEX, extra, color,
-                2 if bold else 1, cv2.LINE_AA,
-            )
-        elif kind == "bar":
-            y += 4
-            _draw_progress_bar(frame, col_x, y, box_w - pad * 2, bar_h, extra, color)
-            y += bar_h + 2
-        elif kind == "spacer":
-            y += 8
 
 
 def draw_landmarks(frame: np.ndarray, landmarks, w: int, h: int) -> dict:
-    """Draw skeleton overlay and return a dict of computed joint angles."""
     points = {}
     for idx, lm in enumerate(landmarks):
         cx, cy = int(lm.x * w), int(lm.y * h)
         points[idx] = (cx, cy, lm.visibility)
 
-    # Draw bones
     for (i, j) in POSE_CONNECTIONS:
         if i in points and j in points:
             vi, vj = points[i][2], points[j][2]
@@ -739,12 +192,8 @@ def draw_landmarks(frame: np.ndarray, landmarks, w: int, h: int) -> dict:
                     COLOR_BONE, BONE_THICKNESS, cv2.LINE_AA,
                 )
 
-    # Draw joints
     for idx, (cx, cy, vis) in points.items():
-        if vis > VISIBILITY_THRESHOLD:
-            color = COLOR_JOINT
-        else:
-            color = COLOR_LOW_CONF
+        color = COLOR_JOINT if vis > VISIBILITY_THRESHOLD else COLOR_LOW_CONF
         cv2.circle(frame, (cx, cy), JOINT_RADIUS, color, -1, cv2.LINE_AA)
         cv2.circle(frame, (cx, cy), JOINT_RADIUS, (0, 0, 0), 1, cv2.LINE_AA)
 
@@ -777,18 +226,6 @@ def draw_landmarks(frame: np.ndarray, landmarks, w: int, h: int) -> dict:
 
 
 def compute_supination(hand_landmarks, side: str) -> float | None:
-    """Estimate forearm supination from the palm cross-vector.
-
-    Uses the vector from pinky MCP (17) to index MCP (5) which runs
-    across the palm base.  Returns a value in roughly [-1, 1]:
-        +1  = fully supinated (palm up / facing camera)
-         0  = neutral / hammer grip
-        -1  = pronated (palm down)
-    Returns None if landmarks are missing.
-
-    *side* is our display side ("L" or "R"), already corrected for
-    the mirrored selfie feed.
-    """
     idx_mcp = hand_landmarks[5]
     pnk_mcp = hand_landmarks[17]
     pres_ok = (
@@ -801,30 +238,21 @@ def compute_supination(hand_landmarks, side: str) -> float | None:
     dx = idx_mcp.x - pnk_mcp.x
     dy = idx_mcp.y - pnk_mcp.y
 
-    # Normalize so positive = supinated for both hands.
-    # In mirrored selfie view, supinated L hand has index LEFT of pinky (dx < 0),
-    # supinated R hand has index RIGHT of pinky (dx > 0).
     if side == "L":
         dx = -dx
 
     spread = math.hypot(dx, dy) + 1e-8
-    # sup_ratio: +1 when palm cross-vector is perfectly horizontal toward
-    # the supinated direction, 0 when vertical (neutral), -1 when pronated.
-    sup_ratio = dx / spread
-    return float(sup_ratio)
+    return float(dx / spread)
 
 
 def draw_hand_landmarks(
     frame: np.ndarray, hand_landmarks_list, handedness_list,
     w: int, h: int,
 ) -> dict[str, float | None]:
-    """Draw hand skeleton overlays.  Returns {side: supination_ratio}."""
     supination: dict[str, float | None] = {}
 
     for hand_landmarks, handedness in zip(hand_landmarks_list, handedness_list):
-        label = handedness[0].category_name  # "Left" or "Right"
-        # MediaPipe returns mirrored labels for a selfie-view feed, so we
-        # swap to match the visual side on screen.
+        label = handedness[0].category_name
         side = "L" if label == "Right" else "R"
         color = COLOR_HAND_LEFT if side == "L" else COLOR_HAND_RIGHT
 
@@ -849,10 +277,9 @@ def draw_hand_landmarks(
                     )
 
         for idx, (cx, cy, pres) in points.items():
-            r = HAND_JOINT_RADIUS
             if pres > PRESENCE_THRESHOLD:
-                cv2.circle(frame, (cx, cy), r, color, -1, cv2.LINE_AA)
-                cv2.circle(frame, (cx, cy), r, (0, 0, 0), 1, cv2.LINE_AA)
+                cv2.circle(frame, (cx, cy), HAND_JOINT_RADIUS, color, -1, cv2.LINE_AA)
+                cv2.circle(frame, (cx, cy), HAND_JOINT_RADIUS, (0, 0, 0), 1, cv2.LINE_AA)
 
                 if idx in HAND_FINGERTIP_LABELS:
                     cv2.putText(
@@ -862,7 +289,6 @@ def draw_hand_landmarks(
                         cv2.LINE_AA,
                     )
 
-        # Label which hand + supination near the wrist.
         if 0 in points and points[0][2] > PRESENCE_THRESHOLD:
             wx, wy = points[0][0], points[0][1]
             sup_label = ""
@@ -883,7 +309,6 @@ def draw_hand_landmarks(
 
 
 def draw_hud(frame: np.ndarray, fps: float, angles: dict) -> None:
-    """Render a heads-up display with FPS and joint angles."""
     h, w = frame.shape[:2]
     overlay = frame.copy()
 
@@ -905,13 +330,202 @@ def draw_hud(frame: np.ndarray, fps: float, angles: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Workout session (set / rest management)
+# ---------------------------------------------------------------------------
+
+
+class WorkoutSession:
+    """Manages sets, rest periods, and rep goals for any exercise."""
+
+    def __init__(
+        self,
+        reps_per_set: int = 8,
+        rest_seconds: float = 60.0,
+        total_sets: int = 3,
+    ) -> None:
+        self.reps_per_set = reps_per_set
+        self.rest_seconds = rest_seconds
+        self.total_sets = total_sets
+
+        self.current_set = 0
+        self.resting = False
+        self._rest_start: float = 0.0
+        self._rest_warned = False
+        self._finished = False
+
+    @property
+    def finished(self) -> bool:
+        return self._finished
+
+    @property
+    def rest_remaining(self) -> float:
+        if not self.resting:
+            return 0.0
+        return max(0.0, self.rest_seconds - (time.time() - self._rest_start))
+
+    def start(self) -> None:
+        self.current_set = 1
+        self.resting = False
+        self._finished = False
+        self._rest_warned = False
+
+    def check_set_complete(self, trackers: dict) -> bool:
+        """Return True if either arm hit the rep target this frame."""
+        if self.resting or self._finished:
+            return False
+        for t in trackers.values():
+            if t.reps >= self.reps_per_set:
+                return True
+        return False
+
+    def begin_rest(self) -> None:
+        self.resting = True
+        self._rest_start = time.time()
+        self._rest_warned = False
+
+    def check_rest_done(self) -> bool:
+        if not self.resting:
+            return False
+        return self.rest_remaining <= 0.0
+
+    def advance_set(self) -> bool:
+        """Move to the next set. Returns False if all sets are done."""
+        self.resting = False
+        self.current_set += 1
+        if self.current_set > self.total_sets:
+            self._finished = True
+            return False
+        return True
+
+    def should_warn_rest_break(self) -> bool:
+        """Returns True once per rest period if the user should be warned."""
+        if not self.resting or self._rest_warned:
+            return False
+        self._rest_warned = True
+        return True
+
+    def reset_rest_warn(self) -> None:
+        """Allow another rest-break warning (call when movement detected)."""
+        self._rest_warned = False
+
+
+# ---------------------------------------------------------------------------
+# State machine
+# ---------------------------------------------------------------------------
+
+STATE_IDLE = "idle"
+STATE_CURL = "bicep_curl"
+STATE_RAISE = "lateral_raise"
+STATE_REST = "resting"
+
+
+def _state_label(state: str, session: "WorkoutSession | None") -> str:
+    if state == STATE_IDLE:
+        return "IDLE - Say an exercise to start"
+    if state == STATE_REST and session:
+        rem = int(session.rest_remaining)
+        return f"REST  {rem}s remaining  (Set {session.current_set}/{session.total_sets})"
+    ex_name = "BICEP CURL" if state == STATE_CURL else "LATERAL RAISE"
+    set_info = ""
+    if session:
+        set_info = f"  Set {session.current_set}/{session.total_sets}"
+    return f"{ex_name}{set_info} - Say 'stop' to end"
+
+
+def draw_state_bar(
+    frame: np.ndarray, state: str, session: "WorkoutSession | None",
+    listener_active: bool, processing: bool,
+) -> None:
+    fh, fw = frame.shape[:2]
+    bar_h = 44
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, fh - bar_h), (fw, fh), COLOR_HUD, -1)
+    cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+
+    label = _state_label(state, session)
+    cv2.putText(
+        frame, label, (14, fh - 14),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_TEXT, 2, cv2.LINE_AA,
+    )
+
+    if listener_active:
+        indicator = "Processing..." if processing else "Listening..."
+        color = COLOR_WARN if processing else COLOR_GOOD
+        text_size = cv2.getTextSize(indicator, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+        cv2.putText(
+            frame, indicator, (fw - text_size[0] - 14, fh - 16),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA,
+        )
+
+
+def draw_rest_overlay(frame: np.ndarray, session: WorkoutSession) -> None:
+    """Large centered rest countdown overlay."""
+    fh, fw = frame.shape[:2]
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, fh // 3), (fw, fh * 2 // 3), COLOR_HUD, -1)
+    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+
+    rem = int(session.rest_remaining)
+    minutes = rem // 60
+    seconds = rem % 60
+    time_str = f"{minutes}:{seconds:02d}" if minutes else f"{seconds}s"
+
+    title = "REST"
+    set_info = f"Set {session.current_set}/{session.total_sets} complete"
+
+    for txt, y_off, scale, thickness in [
+        (title, -30, 1.4, 3),
+        (time_str, 30, 1.8, 4),
+        (set_info, 80, 0.7, 2),
+    ]:
+        sz = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
+        tx = (fw - sz[0]) // 2
+        ty = fh // 2 + y_off
+        cv2.putText(
+            frame, txt, (tx, ty),
+            cv2.FONT_HERSHEY_SIMPLEX, scale, COLOR_TEXT, thickness, cv2.LINE_AA,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+def _make_trackers(exercise_state: str) -> dict:
+    if exercise_state == STATE_CURL:
+        return {"L": CurlTracker("L"), "R": CurlTracker("R")}
+    if exercise_state == STATE_RAISE:
+        return {"L": LateralRaiseTracker("L"), "R": LateralRaiseTracker("R")}
+    return {}
+
+
+def _exercise_is_active(angles: dict, exercise_state: str) -> bool:
+    """Heuristic: is the user performing reps during rest?"""
+    if exercise_state == STATE_CURL:
+        for side in ("L", "R"):
+            ea = angles.get(f"{side} elbow")
+            if ea is not None and ea < 90:
+                return True
+    elif exercise_state == STATE_RAISE:
+        for side in ("L", "R"):
+            sa = angles.get(f"{side} shoulder")
+            if sa is not None and sa > 50:
+                return True
+    return False
+
+
+def main(
+    reps_per_set: int = 8,
+    rest_seconds: float = 60.0,
+    total_sets: int = 3,
+) -> None:
     from tts import VoiceCoach
+    from voice_command import VoiceCommandListener
+
     voice = VoiceCoach()
+    listener = VoiceCommandListener(is_speaking_fn=lambda: voice.is_busy)
+    listener.start()
 
     download_model(POSE_MODEL_URL, POSE_MODEL_PATH)
     download_model(HAND_MODEL_URL, HAND_MODEL_PATH)
@@ -940,15 +554,19 @@ def main() -> None:
 
     pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
     hand_landmarker = vision.HandLandmarker.create_from_options(hand_options)
-    curl_trackers: dict[str, CurlTracker] = {
-        "L": CurlTracker("L"),
-        "R": CurlTracker("R"),
-    }
+
+    trackers: dict = {}
+    state = STATE_IDLE
+    exercise_type = STATE_IDLE
+    session: WorkoutSession | None = None
+
     prev_time = time.time()
     fps = 0.0
     frame_ts = 0
 
-    print("Pose + hand tracker running. Press 'q' to quit.")
+    print("GymBuddy ready. Say an exercise to start. Press 'q' to quit.")
+    print(f"  Config: {reps_per_set} reps/set, {rest_seconds:.0f}s rest, {total_sets} sets")
+    voice.say("Gym Buddy ready. Tell me which exercise you want to do.")
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -958,6 +576,27 @@ def main() -> None:
         frame = cv2.flip(frame, 1)
         h, w = frame.shape[:2]
 
+        # --- Voice commands ---
+        cmd = listener.get_command()
+        if state == STATE_IDLE:
+            if cmd in ("start_bicep_curl", "start_lateral_raise"):
+                exercise_type = STATE_CURL if cmd == "start_bicep_curl" else STATE_RAISE
+                state = exercise_type
+                trackers = _make_trackers(exercise_type)
+                session = WorkoutSession(reps_per_set, rest_seconds, total_sets)
+                session.start()
+                name = "bicep curl" if exercise_type == STATE_CURL else "lateral raise"
+                voice.say(f"Starting {name}. Set 1 of {total_sets}.")
+                print(f"[state] -> {name.upper()} (set 1/{total_sets})")
+        elif cmd == "stop":
+            voice.say("Stopping analysis.")
+            print("[state] -> IDLE")
+            state = STATE_IDLE
+            exercise_type = STATE_IDLE
+            trackers = {}
+            session = None
+
+        # --- Detection ---
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
@@ -965,7 +604,6 @@ def main() -> None:
         pose_result = pose_landmarker.detect_for_video(mp_image, frame_ts)
         hand_result = hand_landmarker.detect_for_video(mp_image, frame_ts)
 
-        # Process hands first so supination data is available for curl tracker.
         hand_supination: dict[str, float | None] = {}
         if hand_result.hand_landmarks:
             hand_supination = draw_hand_landmarks(
@@ -978,56 +616,77 @@ def main() -> None:
             lms = pose_result.pose_landmarks[0]
             angles = draw_landmarks(frame, lms, w, h)
 
-            lean = torso_lean_angle(lms)
-            now_t = time.time()
+            if state == STATE_CURL:
+                lean = torso_lean_angle(lms)
+                now_t = time.time()
+                update_curl_trackers(trackers, lms, angles, hand_supination, lean, now_t)
 
-            side_lm = {
-                "L": (11, 13, 15, 23, 7, 19),
-                "R": (12, 14, 16, 24, 8, 20),
-            }
-            for side, (sh, el, wr, hp, ear, idx_f) in side_lm.items():
-                elbow_a = angles.get(f"{side} elbow")
-                shoulder_a = angles.get(f"{side} shoulder")
-                wrist_a = angles.get(f"{side} wrist")
-                if elbow_a is None or shoulder_a is None:
-                    continue
+            elif state == STATE_RAISE:
+                lean = torso_lean_angle(lms)
+                now_t = time.time()
+                update_raise_trackers(trackers, lms, angles, lean, now_t)
 
-                sh_ear = None
-                if (lms[sh].visibility or 0) > VISIBILITY_THRESHOLD and \
-                   (lms[ear].visibility or 0) > VISIBILITY_THRESHOLD:
-                    sh_ear = abs(lms[sh].y - lms[ear].y)
+        # --- Set / rest management ---
+        if session and not session.finished:
+            if state == STATE_REST:
+                if _exercise_is_active(angles, exercise_type) and not voice.is_busy:
+                    if session.should_warn_rest_break():
+                        rem = int(session.rest_remaining)
+                        voice.say(f"Take more time to rest. {rem} seconds remaining.")
+                        print(f"[rest] Movement detected – warned user ({rem}s left)")
+                    session.reset_rest_warn()
 
-                flare = None
-                if (lms[el].visibility or 0) > VISIBILITY_THRESHOLD and \
-                   (lms[hp].visibility or 0) > VISIBILITY_THRESHOLD:
-                    flare = abs(lms[el].x - lms[hp].x)
+                if session.check_rest_done():
+                    if session.advance_set():
+                        trackers = _make_trackers(exercise_type)
+                        state = exercise_type
+                        voice.say(f"Rest over. Set {session.current_set} of {session.total_sets}. Let's go!")
+                        print(f"[state] -> SET {session.current_set}/{session.total_sets}")
+                    else:
+                        voice.say("All sets complete. Great workout!")
+                        print("[state] -> IDLE (workout complete)")
+                        state = STATE_IDLE
+                        exercise_type = STATE_IDLE
+                        trackers = {}
+                        session = None
 
-                sup = hand_supination.get(side)
-                curl_trackers[side].update(
-                    elbow_a, shoulder_a, lean,
-                    wrist_a, sh_ear, flare, sup, now_t,
-                )
+            elif state in (STATE_CURL, STATE_RAISE) and session.check_set_complete(trackers):
+                session.begin_rest()
+                state = STATE_REST
+                voice.say(f"Set {session.current_set} done! Rest for {int(session.rest_seconds)} seconds.")
+                print(f"[state] -> REST (set {session.current_set} done)")
 
-        # Send the most critical feedback to voice coach (non-blocking).
-        if not voice.is_busy:
+        # --- Voice coach (only during active exercise) ---
+        if state in (STATE_CURL, STATE_RAISE) and not voice.is_busy:
             for side in ("L", "R"):
-                speech = curl_trackers[side].take_speech()
-                if speech:
-                    voice.say(speech)
-                    break  # one message at a time
+                if side in trackers:
+                    speech = trackers[side].take_speech()
+                    if speech:
+                        voice.say(speech)
+                        break
 
         now = time.time()
         fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
         prev_time = now
 
-        draw_curl_panel(frame, curl_trackers, angles, now)
-        draw_live_alerts(frame, curl_trackers, now)
+        # --- Draw overlays ---
+        if state == STATE_CURL:
+            draw_curl_panel(frame, trackers, angles, now)
+            draw_live_alerts(frame, trackers, now)
+        elif state == STATE_RAISE:
+            draw_raise_panel(frame, trackers, angles, now)
+            draw_live_alerts(frame, trackers, now)
+        elif state == STATE_REST and session:
+            draw_rest_overlay(frame, session)
+
+        draw_state_bar(frame, state, session, listener.is_listening, listener.is_processing)
         draw_hud(frame, fps, angles)
         cv2.imshow("GymBuddy - Pose Tracker", frame)
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
+    listener.stop()
     pose_landmarker.close()
     hand_landmarker.close()
     cap.release()
@@ -1035,4 +694,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="GymBuddy Pose Tracker")
+    parser.add_argument("--reps", type=int, default=8, help="Reps per set (default: 8)")
+    parser.add_argument("--rest", type=float, default=60.0, help="Rest between sets in seconds (default: 60)")
+    parser.add_argument("--sets", type=int, default=3, help="Total sets (default: 3)")
+    args = parser.parse_args()
+    main(reps_per_set=args.reps, rest_seconds=args.rest, total_sets=args.sets)
