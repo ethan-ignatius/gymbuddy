@@ -16,8 +16,10 @@ from elevenlabs.play import play
 
 load_dotenv()
 
-_VOICE_ID = "dtSEyYGNJqjrtBArPCVZ"
-_MODEL_ID = "eleven_multilingual_v2"
+# If ELEVENLABS_VOICE_ID is unset/empty, omit voice_id to use provider default.
+_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID") or None
+# If ELEVENLABS_VOICE_MODEL is unset/empty, omit model_id to use provider default.
+_MODEL_ID = os.getenv("ELEVENLABS_VOICE_MODEL") or None
 _OUTPUT_FMT = "mp3_44100_128"
 _PAUSE_AFTER = 2.0  # seconds to wait after speech finishes
 
@@ -68,12 +70,12 @@ class VoiceCoach:
 
             self._busy = True
             try:
-                audio = self._client.text_to_speech.convert(
-                    text=text,
-                    voice_id=_VOICE_ID,
-                    model_id=_MODEL_ID,
-                    output_format=_OUTPUT_FMT,
-                )
+                kwargs = {"text": text, "output_format": _OUTPUT_FMT}
+                if _VOICE_ID:
+                    kwargs["voice_id"] = _VOICE_ID
+                if _MODEL_ID:
+                    kwargs["model_id"] = _MODEL_ID
+                audio = self._client.text_to_speech.convert(**kwargs)
                 play(audio)
                 time.sleep(_PAUSE_AFTER)
             except Exception as exc:
