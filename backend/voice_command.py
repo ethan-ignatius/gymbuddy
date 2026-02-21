@@ -48,19 +48,36 @@ _KEYWORD_RULES: list[tuple[str, re.Pattern]] = [
 
 INTENTS = {
     "start_workout", "start_bicep_curl", "start_lateral_raise",
-    "ready", "skip", "stop", "unknown",
+    "ready", "skip", "stop", "question", "unknown",
 }
 
 
 def _classify_text(text: str) -> str:
     """Classify transcript into an intent using keyword rules."""
-    text = re.sub(r"[^\w\s']", "", text).strip()
-    if not text:
+    normalized = re.sub(r"[^\w\s'?!]", "", text).strip()
+    if not normalized:
         return "unknown"
+
+    # Workout commands always win over generic question detection.
     for intent, pattern in _KEYWORD_RULES:
-        if pattern.search(text):
+        if pattern.search(normalized):
             return intent
+
+    if _is_question(normalized):
+        return "question"
     return "unknown"
+
+
+def _is_question(text: str) -> bool:
+    if "?" in text:
+        return True
+    lowered = text.lower().strip()
+    question_starters = (
+        "what", "why", "how", "when", "where", "who", "which",
+        "can", "could", "should", "would", "do", "does", "did",
+        "is", "are", "am", "will", "tell me", "explain",
+    )
+    return lowered.startswith(question_starters)
 
 
 def _wav_bytes_to_float32(wav_bytes: bytes) -> np.ndarray:
@@ -195,7 +212,7 @@ class VoiceCommandListener:
 
             intent = _classify_text(transcript)
             print(f"[voice] Intent: {intent}")
-            if intent in INTENTS and intent != "unknown":
+            if intent in INTENTS and intent not in ("unknown", "question"):
                 self._command_queue.put(intent)
             else:
                 self._message_queue.put(transcript)
