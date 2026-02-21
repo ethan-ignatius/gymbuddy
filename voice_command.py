@@ -1,9 +1,10 @@
 """
-Voice command listener – background mic capture + local Whisper transcription.
+Voice command listener – background mic capture + local Whisper transcription
+with optional OpenAI LLM fallback for natural language understanding.
 
-Listens continuously for voice commands via the microphone, transcribes
-locally with Whisper (no API needed), and classifies intent via keyword
-matching.
+Clear commands (start, stop, skip, etc.) are handled instantly via keyword
+matching.  Anything the keywords can't resolve is forwarded to the LLM
+for intent classification *and* a conversational response.
 """
 
 import io
@@ -12,6 +13,7 @@ import re
 import threading
 import time
 import wave
+from dataclasses import dataclass
 
 import numpy as np
 import speech_recognition as sr
@@ -52,6 +54,14 @@ INTENTS = {
 }
 
 
+@dataclass
+class VoiceResult:
+    """Result from voice processing: classified intent + optional LLM response."""
+    intent: str | None
+    transcript: str
+    response: str | None = None
+
+
 def _classify_text(text: str) -> str:
     """Classify transcript into an intent using keyword rules."""
     text = re.sub(r"[^\w\s']", "", text).strip()
@@ -72,7 +82,8 @@ def _wav_bytes_to_float32(wav_bytes: bytes) -> np.ndarray:
 
 
 class VoiceCommandListener:
-    """Non-blocking voice command listener with local Whisper transcription.
+    """Non-blocking voice command listener with local Whisper transcription
+    and optional OpenAI LLM for natural language understanding.
 
     Usage::
 
@@ -80,16 +91,19 @@ class VoiceCommandListener:
         listener.start()
 
         # in your frame loop:
-        cmd = listener.get_command()
-        if cmd == "start_bicep_curl": ...
+        result = listener.get_command()
+        if result and result.intent == "start_bicep_curl": ...
     """
 
-    _MUTE_GRACE = 1.0  # seconds to stay muted after TTS finishes
+    _MUTE_GRACE = 0.5
 
     def __init__(
         self,
         whisper_model: str = "tiny.en",
         is_speaking_fn=None,
+        llm_brain=None,
+        get_context_fn=None,
+        use_llm_only: bool = True,
     ) -> None:
         """
         Args:
@@ -97,6 +111,14 @@ class VoiceCommandListener:
             is_speaking_fn: Callable returning True while TTS is playing.
                             Audio captured during speech (+ grace period) is
                             discarded so the mic doesn't hear its own output.
+            llm_brain: Optional ``LLMBrain`` instance for LLM fallback.
+            get_context_fn: Callable returning a ``WorkoutContext`` snapshot.
+                            Called from the processing thread at transcription
+                            time so the LLM gets up-to-date workout state.
+            use_llm_only: When True, ALL transcripts are sent through the LLM
+                          (natural responses for everything).  When False,
+                          clear keyword matches use the fast regex path and
+                          only unrecognised input falls through to the LLM.
         """
         print(f"Loading Whisper model '{whisper_model}'...")
         self._whisper = whisper.load_model(whisper_model)
@@ -105,9 +127,13 @@ class VoiceCommandListener:
         self._is_speaking_fn = is_speaking_fn
         self._mute_until: float = 0.0
 
+        self._llm = llm_brain
+        self._get_context_fn = get_context_fn
+        self.use_llm_only = use_llm_only
+
         self._recognizer = sr.Recognizer()
         self._mic = sr.Microphone()
-        self._command_queue: queue.Queue[str] = queue.Queue()
+        self._command_queue: queue.Queue[VoiceResult] = queue.Queue()
         self._stop_listening = None
         self._is_listening = False
         self._processing = False
@@ -128,9 +154,9 @@ class VoiceCommandListener:
     def start(self) -> None:
         """Begin background listening."""
         with self._mic as source:
-            self._recognizer.adjust_for_ambient_noise(source, duration=1)
+            self._recognizer.adjust_for_ambient_noise(source, duration=0.5)
         self._stop_listening = self._recognizer.listen_in_background(
-            self._mic, self._audio_callback, phrase_time_limit=5,
+            self._mic, self._audio_callback, phrase_time_limit=3,
         )
         self._is_listening = True
         print("Voice commands active. Speak to control your workout.")
@@ -140,15 +166,15 @@ class VoiceCommandListener:
             self._stop_listening(wait_for_stop=False)
             self._is_listening = False
 
-    def get_command(self) -> str | None:
-        """Non-blocking: return the next classified intent, or None."""
+    def get_command(self) -> VoiceResult | None:
+        """Non-blocking: return the next voice result, or None."""
         try:
             return self._command_queue.get_nowait()
         except queue.Empty:
             return None
 
     def _is_muted(self) -> bool:
-        """True when we should ignore mic input (TTS is playing or just finished)."""
+        """True when we should ignore mic input (TTS playing or just finished)."""
         if self._is_speaking_fn and self._is_speaking_fn():
             self._mute_until = time.time() + self._MUTE_GRACE
             return True
@@ -185,10 +211,52 @@ class VoiceCommandListener:
             self._last_transcript = transcript
             print(f"[voice] Heard: {transcript!r}")
 
-            intent = _classify_text(transcript)
-            print(f"[voice] Intent: {intent}")
-            if intent in INTENTS and intent != "unknown":
-                self._command_queue.put(intent)
+            # ---- Keyword-first mode: try regex, fall back to LLM ----
+            if not self.use_llm_only:
+                intent = _classify_text(transcript)
+                if intent != "unknown":
+                    print(f"[voice] Intent (keyword): {intent}")
+                    self._command_queue.put(VoiceResult(
+                        intent=intent, transcript=transcript,
+                    ))
+                    return
+
+            # ---- LLM path (always reached in LLM-only mode) ----
+            if self._llm and self._llm.available:
+                from llm_brain import WorkoutContext
+
+                ctx = (self._get_context_fn()
+                       if self._get_context_fn else WorkoutContext())
+                llm_resp = self._llm.process(transcript, ctx)
+                if llm_resp.intent == "ignore":
+                    print("[voice] Ignored (not directed at GymBuddy)")
+                    return
+                vr = VoiceResult(
+                    intent=llm_resp.intent,
+                    transcript=transcript,
+                    response=llm_resp.response or None,
+                )
+                if vr.intent or vr.response:
+                    self._command_queue.put(vr)
+                    print(
+                        f"[voice] LLM -> intent={vr.intent}, "
+                        f"response={vr.response!r}"
+                    )
+                else:
+                    print("[voice] LLM returned nothing actionable")
+
+            # ---- No LLM available: last-resort keyword match ----
+            elif not self.use_llm_only:
+                print("[voice] Intent: unknown (no LLM fallback)")
+            else:
+                intent = _classify_text(transcript)
+                if intent != "unknown":
+                    print(f"[voice] Intent (keyword fallback): {intent}")
+                    self._command_queue.put(VoiceResult(
+                        intent=intent, transcript=transcript,
+                    ))
+                else:
+                    print("[voice] Intent: unknown (LLM unavailable)")
         except Exception as exc:
             print(f"[voice] Error: {exc}")
         finally:
@@ -201,9 +269,12 @@ if __name__ == "__main__":
     print("Listening... speak a command (Ctrl+C to quit)")
     try:
         while True:
-            cmd = listener.get_command()
-            if cmd:
-                print(f"  -> Command: {cmd}")
+            result = listener.get_command()
+            if result:
+                print(
+                    f"  -> Intent: {result.intent}, "
+                    f"Response: {result.response!r}"
+                )
             time.sleep(0.1)
     except KeyboardInterrupt:
         listener.stop()

@@ -17,9 +17,9 @@ from elevenlabs.play import play
 load_dotenv()
 
 _VOICE_ID = "dtSEyYGNJqjrtBArPCVZ"
-_MODEL_ID = "eleven_multilingual_v2"
-_OUTPUT_FMT = "mp3_44100_128"
-_PAUSE_AFTER = 2.0  # seconds to wait after speech finishes
+_MODEL_ID = "eleven_turbo_v2_5"
+_OUTPUT_FMT = "mp3_22050_32"
+_PAUSE_AFTER = 0.5
 
 
 class VoiceCoach:
