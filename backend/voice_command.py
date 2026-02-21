@@ -108,6 +108,7 @@ class VoiceCommandListener:
         self._recognizer = sr.Recognizer()
         self._mic = sr.Microphone()
         self._command_queue: queue.Queue[str] = queue.Queue()
+        self._message_queue: queue.Queue[str] = queue.Queue()
         self._stop_listening = None
         self._is_listening = False
         self._processing = False
@@ -144,6 +145,13 @@ class VoiceCommandListener:
         """Non-blocking: return the next classified intent, or None."""
         try:
             return self._command_queue.get_nowait()
+        except queue.Empty:
+            return None
+
+    def get_message(self) -> str | None:
+        """Non-blocking: return the next non-command transcript, or None."""
+        try:
+            return self._message_queue.get_nowait()
         except queue.Empty:
             return None
 
@@ -189,6 +197,8 @@ class VoiceCommandListener:
             print(f"[voice] Intent: {intent}")
             if intent in INTENTS and intent != "unknown":
                 self._command_queue.put(intent)
+            else:
+                self._message_queue.put(transcript)
         except Exception as exc:
             print(f"[voice] Error: {exc}")
         finally:

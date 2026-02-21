@@ -672,9 +672,11 @@ def _start_exercise(
 def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
     from tts import VoiceCoach
     from voice_command import VoiceCommandListener
+    from openai_coach import OpenAICoach
 
     voice = VoiceCoach()
     listener = VoiceCommandListener(is_speaking_fn=lambda: voice.is_busy)
+    coach = OpenAICoach()
     listener.start()
 
     download_model(POSE_MODEL_URL, POSE_MODEL_PATH)
@@ -728,6 +730,9 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
     print("GymBuddy ready. Say 'start workout' or an exercise name. Press 'q' to quit.")
     voice.say("Gym Buddy ready. Say start workout to begin your routine.")
 
+    chat_cooldown = 4.0
+    last_chat_ts = 0.0
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -738,6 +743,7 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
 
         # --- Voice commands ---
         cmd = listener.get_command()
+        msg = listener.get_message()
 
         if cmd == "stop":
             if state != STATE_IDLE:
@@ -776,6 +782,27 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                 exercise_type = state
                 voice.say(f"Starting {cfg.display_name}. Set 1 of {cfg.sets}.")
                 print(f"[state] -> {cfg.display_name.upper()} (ad-hoc)")
+
+        # --- Conversational fallback (Gemini) ---
+        if msg and not voice.is_busy:
+            now_ts = time.time()
+            if now_ts - last_chat_ts >= chat_cooldown:
+                ctx_parts = [
+                    f"state={state}",
+                    f"exercise={EXERCISE_NAMES.get(exercise_type, exercise_type)}",
+                ]
+                if routine and routine.current:
+                    ctx_parts.append(f"up_next={routine.current.display_name}")
+                if session:
+                    ctx_parts.append(
+                        f"set={session.current_set}/{session.total_sets}, "
+                        f"resting={session.resting}"
+                    )
+                context = ", ".join(ctx_parts)
+                reply = coach.reply(msg, context=context)
+                if reply:
+                    voice.say(reply)
+                    last_chat_ts = now_ts
 
         elif state == STATE_ANNOUNCE:
             is_go = cmd in ("ready", "start_bicep_curl", "start_lateral_raise")
