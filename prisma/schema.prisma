@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  phoneNumber        String   @unique
+  heightCm            Int
+  weightKg            Int
+  goal                String // "lose_fat" | "strength_and_size" | "strength_without_size"
+  timezone            String  @default("America/New_York")
+  gymTravelMin        Int
+  googleAccessToken  String?
+  googleRefreshToken String?
+  googleCalendarId    String  @default("primary")
+
+  workouts ScheduledWorkout[]
+}
+
+model ScheduledWorkout {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutBlockName String
+  startTime        DateTime
+  endTime          DateTime
+  calendarEventId  String?
+  status           String // "scheduled" | "completed" | "cancelled" | "rescheduled"
+
+  @@index([userId])
+  @@index([userId, startTime])
+}

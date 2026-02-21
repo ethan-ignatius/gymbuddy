@@ -1,0 +1,14 @@
+node_modules/
+dist/
+
+# Environment secrets — never commit
+.env
+.env.local
+.env.production
+
+# Prisma
+prisma/migrations/**/migration_lock.toml
+
+# Frontend build
+frontend/node_modules/
+frontend/dist/
