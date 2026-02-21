@@ -10,10 +10,11 @@ GymBuddy combines:
 
 Requirements: Node 18+, PostgreSQL.
 
-1. Copy `.env.example` to `.env` and set `DATABASE_URL`.
+1. Copy `backend/.env.example` to `backend/.env` and set `DATABASE_URL`.
 2. Run:
 
 ```bash
+cd backend
 npm install
 npx prisma generate
 npx prisma migrate deploy
@@ -21,7 +22,7 @@ npx prisma migrate deploy
 npm run dev
 ```
 
-Backend runs on http://localhost:3001.
+Backend runs on http://localhost:3000.
 
 ### Frontend
 
@@ -46,6 +47,8 @@ Frontend runs on http://localhost:5173 and proxies `/api` and `/webhooks` to the
 **Requires Python 3.9 – 3.12.**
 
 ```bash
+cd backend
+
 # Create a virtual environment (recommended)
 python3 -m venv .venv
 
@@ -64,6 +67,7 @@ The model file (`pose_landmarker_lite.task`) is downloaded automatically on firs
 ## Pose Tracker Usage
 
 ```bash
+cd backend
 python pose_tracker.py
 ```
 

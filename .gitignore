@@ -12,7 +12,7 @@ dist/
 .env.production
 
 # Prisma
-prisma/migrations/**/migration_lock.toml
+backend/prisma/migrations/**/migration_lock.toml
 
 # Frontend build
 frontend/node_modules/
