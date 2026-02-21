@@ -2,6 +2,7 @@ import { Router } from "express";
 import { exchangeCodeForTokens, getConsentUrl } from "../lib/googleAuth.js";
 import { prisma } from "../lib/db.js";
 import { startOnboarding } from "../lib/conversation.js";
+import { startVoiceOnboarding } from "../lib/voice.js";
 
 export const oauthRouter = Router();
 
@@ -33,15 +34,20 @@ oauthRouter.get("/google/callback", async (req, res) => {
       },
     });
 
-    await startOnboarding(user);
+    try {
+      await startVoiceOnboarding(user);
+    } catch (voiceErr) {
+      console.error("[OAuth] voice onboarding failed, falling back to SMS:", voiceErr);
+      await startOnboarding(user);
+    }
 
     return res.send(`
       <html>
         <body style="font-family: system-ui; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f5f5f5;">
-          <div style="text-align: center; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); max-width: 420px;">
+          <div style="text-align: center; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); max-width: 460px;">
             <div style="width: 48px; height: 48px; margin: 0 auto 1rem; background: #22c55e; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700;">✓</div>
             <h2 style="margin: 0 0 0.5rem;">Calendar connected!</h2>
-            <p style="color: #555;">Check your phone — GymBuddy just texted you. Reply to set up your workout schedule!</p>
+            <p style="color: #555;">Check your phone. GymBuddy will call you shortly to set your workout schedule.</p>
           </div>
         </body>
       </html>
