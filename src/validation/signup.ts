@@ -9,6 +9,7 @@ const goalEnum = z.enum([
 export const signupBodySchema = z.object({
   email: z.string().email(),
   phoneNumber: z.string().min(10, "Phone number required"),
+  carrier: z.string().min(1, "Carrier required"),
   heightCm: z.coerce.number().int().min(50).max(300),
   weightKg: z.coerce.number().min(20).max(500),
   goal: goalEnum,

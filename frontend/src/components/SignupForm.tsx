@@ -7,11 +7,26 @@ const GOALS: { value: SignupPayload["goal"]; label: string }[] = [
   { value: "strength_without_size", label: "Strength without size" },
 ];
 
+const CARRIERS: { value: string; label: string }[] = [
+  { value: "vtext.com", label: "Verizon" },
+  { value: "txt.att.net", label: "AT&T" },
+  { value: "tmomail.net", label: "T-Mobile" },
+  { value: "messaging.sprintpcs.com", label: "Sprint" },
+  { value: "pcs.rogers.com", label: "Rogers" },
+  { value: "txt.bell.ca", label: "Bell (Canada)" },
+  { value: "msg.telus.com", label: "Telus" },
+  { value: "fido.ca", label: "Fido" },
+  { value: "msg.koodomobile.com", label: "Koodo" },
+  { value: "txt.freedommobile.ca", label: "Freedom Mobile" },
+  { value: "vmobile.ca", label: "Virgin (Canada)" },
+];
+
 type Props = { onSubmit: (payload: SignupPayload) => Promise<void> };
 
 export default function SignupForm({ onSubmit }: Props) {
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [carrier, setCarrier] = useState(CARRIERS[0].value);
   const [heightCm, setHeightCm] = useState("");
   const [weightKg, setWeightKg] = useState("");
   const [goal, setGoal] = useState<SignupPayload["goal"]>("strength_and_size");
@@ -27,6 +42,7 @@ export default function SignupForm({ onSubmit }: Props) {
       await onSubmit({
         email,
         phoneNumber: phoneNumber.startsWith("+") ? phoneNumber : `+1${phoneNumber.replace(/\D/g, "")}`,
+        carrier,
         heightCm: Number(heightCm),
         weightKg: Number(weightKg),
         goal,
@@ -68,6 +84,22 @@ export default function SignupForm({ onSubmit }: Props) {
               required
               style={styles.input}
             />
+          </label>
+
+          <label style={styles.label}>
+            Phone carrier
+            <select
+              value={carrier}
+              onChange={(e) => setCarrier(e.target.value)}
+              required
+              style={styles.input}
+            >
+              {CARRIERS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
           </label>
 
           <div style={styles.row}>
