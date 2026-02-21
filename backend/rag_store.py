@@ -5,6 +5,7 @@ RAG utilities for indexing and retrieving health PDFs with Actian VectorAI DB.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +44,7 @@ class RagConfig:
     pdf_dir: Path
     top_k: int
     embedding_model: str
+    manifest_path: Path
 
 
 def _resolve_pdf_dir(raw_dir: str | None) -> Path:
@@ -56,12 +58,14 @@ def _resolve_pdf_dir(raw_dir: str | None) -> Path:
 
 
 def load_config() -> RagConfig:
+    pdf_dir = _resolve_pdf_dir(os.getenv("RAG_PDF_DIR", "health_pdfs"))
     return RagConfig(
         endpoint=os.getenv("ACTIAN_ENDPOINT", "localhost:50051"),
         collection=os.getenv("RAG_COLLECTION", "health_docs"),
-        pdf_dir=_resolve_pdf_dir(os.getenv("RAG_PDF_DIR", "health_pdfs")),
+        pdf_dir=pdf_dir,
         top_k=int(os.getenv("RAG_TOP_K", "4")),
         embedding_model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+        manifest_path=pdf_dir / ".rag_manifest.json",
     )
 
 
@@ -96,6 +100,7 @@ class HealthRagStore:
     def __init__(self) -> None:
         self._cfg = load_config()
         self._openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if OpenAI else None
+        self._manifest_cache: dict[str, dict] | None = None
 
     @property
     def is_available(self) -> bool:
@@ -114,6 +119,7 @@ class HealthRagStore:
             "endpoint": self._cfg.endpoint,
             "collection": self._cfg.collection,
             "pdf_dir": str(self._cfg.pdf_dir),
+            "manifest_path": str(self._cfg.manifest_path),
         }
         if not self.is_available:
             return info
@@ -155,6 +161,7 @@ class HealthRagStore:
             return 0
 
         total_chunks = 0
+        manifest: dict[str, dict] = {}
         with CortexClient(self._cfg.endpoint) as client:
             for pdf_path in pdf_paths:
                 base_id = int(hashlib.md5(str(pdf_path).encode()).hexdigest()[:8], 16)
@@ -176,6 +183,8 @@ class HealthRagStore:
                         }
                         for i, chunk in enumerate(chunks)
                     ]
+                    for idx, payload in zip(ids, payloads):
+                        manifest[str(idx)] = payload
                     client.batch_upsert(
                         self._cfg.collection,
                         ids=ids,
@@ -183,6 +192,10 @@ class HealthRagStore:
                         payloads=payloads,
                     )
                     total_chunks += len(chunks)
+        self._cfg.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._cfg.manifest_path.open("w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=True)
+        self._manifest_cache = manifest
         return total_chunks
 
     def search(self, query: str) -> list[dict]:
@@ -197,16 +210,64 @@ class HealthRagStore:
                     self._cfg.collection,
                     query=vectors[0],
                     top_k=self._cfg.top_k,
+                    with_payload=True,
                 )
-            payloads: list[dict] = []
-            for r in results:
-                payload = getattr(r, "payload", None)
-                if isinstance(payload, dict):
-                    payloads.append(payload)
+                payloads: list[dict] = []
+                missing_ids: list[int] = []
+                for r in results:
+                    payload = _extract_payload(r)
+                    if isinstance(payload, dict):
+                        payloads.append(payload)
+                        continue
+                    rid = _extract_id(r)
+                    if rid is not None:
+                        missing_ids.append(rid)
+
+                # Some server/client combinations return payload=None in search results.
+                # Hydrate payloads by ID so RAG context can still be built.
+                for rid in missing_ids:
+                    hydrated = _get_payload_by_id(client, self._cfg.collection, rid)
+                    if hydrated is None:
+                        hydrated = self._manifest_payload(rid)
+                        if hydrated is not None:
+                            print(f"[rag] hydrated payload from manifest for id={rid}")
+                    if isinstance(hydrated, dict):
+                        payloads.append(hydrated)
+            if not payloads:
+                print(
+                    f"[rag] search returned {len(results)} result(s) but 0 usable payloads "
+                    f"for collection='{self._cfg.collection}' endpoint='{self._cfg.endpoint}'"
+                )
+                if results:
+                    sample = _result_debug(results[0])
+                    print(f"[rag] sample_result={sample}")
             return payloads
         except Exception as exc:
             print(f"RAG search error: {exc}")
             return []
+
+    def _manifest_payload(self, rid: int) -> dict | None:
+        manifest = self._load_manifest()
+        payload = manifest.get(str(rid))
+        if isinstance(payload, dict):
+            return payload
+        return None
+
+    def _load_manifest(self) -> dict[str, dict]:
+        if self._manifest_cache is not None:
+            return self._manifest_cache
+        path = self._cfg.manifest_path
+        if not path.exists():
+            self._manifest_cache = {}
+            return self._manifest_cache
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            self._manifest_cache = data if isinstance(data, dict) else {}
+        except Exception as exc:
+            print(f"[rag] failed to load manifest: {exc}")
+            self._manifest_cache = {}
+        return self._manifest_cache
 
 
 def build_context(payloads: list[dict], max_chars: int = 2000) -> str:
@@ -229,3 +290,65 @@ def build_context(payloads: list[dict], max_chars: int = 2000) -> str:
         parts.append(snippet)
         used += len(snippet)
     return "\n".join(parts)
+
+
+def _extract_payload(result) -> dict | None:
+    payload = getattr(result, "payload", None)
+    if isinstance(payload, dict):
+        return payload
+
+    # Some client versions expose pydantic models.
+    model_dump = getattr(result, "model_dump", None)
+    if callable(model_dump):
+        try:
+            dumped = model_dump()
+            if isinstance(dumped, dict):
+                maybe = dumped.get("payload")
+                if isinstance(maybe, dict):
+                    return maybe
+        except Exception:
+            return None
+    return None
+
+
+def _extract_id(result) -> int | None:
+    rid = getattr(result, "id", None)
+    if isinstance(rid, int):
+        return rid
+    model_dump = getattr(result, "model_dump", None)
+    if callable(model_dump):
+        try:
+            dumped = model_dump()
+            val = dumped.get("id") if isinstance(dumped, dict) else None
+            if isinstance(val, int):
+                return val
+        except Exception:
+            return None
+    return None
+
+
+def _get_payload_by_id(client, collection: str, rid: int) -> dict | None:
+    try:
+        item = client.get(collection, rid)
+    except Exception:
+        return None
+    # Actian get() returns (vector, payload)
+    if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], dict):
+        return item[1]
+    return _extract_payload(item)
+
+
+def _result_debug(result) -> dict:
+    out: dict = {"type": type(result).__name__}
+    out["has_payload_attr"] = hasattr(result, "payload")
+    payload = getattr(result, "payload", None)
+    out["payload_type"] = type(payload).__name__ if payload is not None else "None"
+    model_dump = getattr(result, "model_dump", None)
+    if callable(model_dump):
+        try:
+            dumped = model_dump()
+            if isinstance(dumped, dict):
+                out["model_dump_keys"] = sorted(list(dumped.keys()))
+        except Exception as exc:
+            out["model_dump_error"] = str(exc)
+    return out
