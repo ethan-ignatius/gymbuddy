@@ -1,8 +1,8 @@
 import twilio from "twilio";
+import OpenAI from "openai";
 import { prisma } from "./db.js";
 import { generateWorkoutPlan } from "./workoutPlan.js";
 import { scheduleWorkoutsForNextWeek } from "./scheduler.js";
-import { getAiResponse } from "./ai.js";
 import type { User } from "@prisma/client";
 
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID!;
@@ -10,6 +10,9 @@ const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN!;
 const TWILIO_PHONE = process.env.TWILIO_PHONE_NUMBER!;
 
 const client = TWILIO_SID && TWILIO_TOKEN ? twilio(TWILIO_SID, TWILIO_TOKEN) : null;
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 let BASE_URL = process.env.BASE_URL ?? "";
 
@@ -94,9 +97,18 @@ export async function handleDaysResponse(userId: string, speechResult: string): 
 
   const parsedDays = dayNames.filter((d) => dayFull[d].some((w) => lower.includes(w)));
   const numMatch = lower.match(/(\d+)/);
-  const count = numMatch ? parseInt(numMatch[1]) : parsedDays.length;
+  let count = numMatch ? parseInt(numMatch[1]) : parsedDays.length;
+  let aiDays = parsedDays;
 
-  if (parsedDays.length === 0 && count === 0) {
+  if (parsedDays.length === 0 && !count) {
+    const parsed = await parseDaysWithAi(speechResult);
+    if (parsed) {
+      aiDays = parsed.days.length > 0 ? parsed.days : aiDays;
+      count = parsed.count ?? count;
+    }
+  }
+
+  if (aiDays.length === 0 && count === 0) {
     const gather = twiml.gather({
       input: ["speech"],
       action: `${BASE_URL}/webhooks/voice/onboard/days?userId=${userId}`,
@@ -106,7 +118,7 @@ export async function handleDaysResponse(userId: string, speechResult: string): 
     return twiml.toString();
   }
 
-  if (parsedDays.length === 0 && count > 0) {
+  if (aiDays.length === 0 && count > 0) {
     await prisma.user.update({ where: { id: userId }, data: { daysPerWeek: count } });
     const gather = twiml.gather({
       input: ["speech"],
@@ -117,12 +129,12 @@ export async function handleDaysResponse(userId: string, speechResult: string): 
     return twiml.toString();
   }
 
-  const daysPerWeek = count > 0 ? count : parsedDays.length;
-  const dayList = parsedDays.map((d) => DAY_LABELS[d]).join(", ");
+  const daysPerWeek = count > 0 ? count : aiDays.length;
+  const dayList = aiDays.map((d) => DAY_LABELS[d]).join(", ");
 
   await prisma.user.update({
     where: { id: userId },
-    data: { preferredDays: parsedDays.join(","), daysPerWeek },
+    data: { preferredDays: aiDays.join(","), daysPerWeek },
   });
 
   const gather = twiml.gather({
@@ -145,6 +157,7 @@ export async function handleTimeResponse(userId: string, speechResult: string): 
   if (lower.includes("morning") || lower.includes("early") || lower.includes("a.m")) pref = "morning";
   else if (lower.includes("afternoon") || lower.includes("lunch") || lower.includes("midday")) pref = "afternoon";
   else if (lower.includes("evening") || lower.includes("night") || lower.includes("p.m") || lower.includes("after work")) pref = "evening";
+  if (!pref) pref = await parseTimePrefWithAi(speechResult);
 
   if (!pref) {
     const gather = twiml.gather({
@@ -267,4 +280,60 @@ export async function startVoiceOnboarding(user: User): Promise<void> {
   });
 
   await callUser(user.phoneNumber, `/webhooks/voice/onboard/greet?userId=${user.id}`);
+}
+
+async function parseDaysWithAi(
+  speechResult: string
+): Promise<{ days: string[]; count: number | null } | null> {
+  if (!openai) return null;
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Extract workout days and count from the user text. " +
+            "Return strict JSON only: {\"days\":[\"mon\",\"tue\",...],\"count\":number|null}. " +
+            "Use days only from mon,tue,wed,thu,fri,sat,sun.",
+        },
+        { role: "user", content: speechResult },
+      ],
+    });
+    const raw = response.choices[0]?.message?.content ?? "";
+    const parsed = JSON.parse(raw) as { days?: string[]; count?: number | null };
+    const valid = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+    const days = (parsed.days ?? []).filter((d) => valid.has(d));
+    const count = typeof parsed.count === "number" ? parsed.count : null;
+    return { days, count };
+  } catch (err) {
+    console.log("[Voice] parseDaysWithAi failed:", err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+async function parseTimePrefWithAi(speechResult: string): Promise<"morning" | "afternoon" | "evening" | null> {
+  if (!openai) return null;
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Classify the text into one label: morning, afternoon, evening, or unknown. " +
+            "Return only one word.",
+        },
+        { role: "user", content: speechResult },
+      ],
+    });
+    const out = (response.choices[0]?.message?.content ?? "").trim().toLowerCase();
+    if (out === "morning" || out === "afternoon" || out === "evening") return out;
+    return null;
+  } catch (err) {
+    console.log("[Voice] parseTimePrefWithAi failed:", err instanceof Error ? err.message : String(err));
+    return null;
+  }
 }
