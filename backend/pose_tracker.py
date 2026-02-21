@@ -697,7 +697,17 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
         min_tracking_confidence=0.5,
     )
 
-    cap = cv2.VideoCapture(0)
+    # Prefer an external USB webcam if present (typically index >= 1).
+    cam_indices = [1, 2, 3, 0]
+    cap = None
+    for idx in cam_indices:
+        candidate = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+        if candidate.isOpened():
+            cap = candidate
+            break
+        candidate.release()
+    if cap is None:
+        cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: cannot open webcam.")
         return
