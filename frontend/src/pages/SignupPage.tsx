@@ -1,6 +1,7 @@
 import { useState } from "react";
 import SignupForm from "../components/SignupForm";
 import SignupSuccess from "../components/SignupSuccess";
+import Plasma from "../components/Plasma";
 
 export type SignupPayload = {
   email: string;
@@ -28,8 +29,45 @@ export default function SignupPage() {
     setCalendarAuthUrl(data.calendarAuthUrl);
   };
 
-  if (calendarAuthUrl) {
-    return <SignupSuccess calendarAuthUrl={calendarAuthUrl} />;
-  }
-  return <SignupForm onSubmit={handleSubmit} />;
+  return (
+    <div style={s.root}>
+      {/* shared plasma background */}
+      <div style={s.plasma}>
+        <Plasma
+          color="#e8c468"
+          speed={1.0}
+          direction="forward"
+          scale={1.5}
+          opacity={0.6}
+          mouseInteractive={false}
+        />
+      </div>
+      <div style={s.overlay} />
+
+      {/* page content */}
+      <div style={s.content}>
+        {calendarAuthUrl
+          ? <SignupSuccess calendarAuthUrl={calendarAuthUrl} />
+          : <SignupForm onSubmit={handleSubmit} />
+        }
+      </div>
+    </div>
+  );
 }
+
+const s: Record<string, React.CSSProperties> = {
+  root: {
+    minHeight: "100vh",
+    background: "#0a0a0a",
+    position: "relative",
+    overflow: "hidden",
+  },
+  plasma: { position: "fixed", inset: 0, zIndex: 0 },
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "linear-gradient(to bottom, rgba(10,10,10,0.65) 0%, rgba(10,10,10,0.8) 100%)",
+    zIndex: 1,
+  },
+  content: { position: "relative", zIndex: 10 },
+};
