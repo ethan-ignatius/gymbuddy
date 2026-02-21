@@ -53,6 +53,12 @@ clearly not directed at GymBuddy, set intent to "ignore" with an \
 empty response. Do NOT respond to things not meant for you.
 - For fitness questions (form tips, muscle groups, etc.) set intent to \
 null and give a brief, helpful answer.
+- If Health docs are provided below, ground your answer in them and \
+cite the source name inline. Prefer document facts over general knowledge.
+- If the user mentions a weight (e.g. "20 pounds", "15 kilos", "thirty \
+five"), include a "weight_lbs" field in your JSON with the numeric value \
+in pounds. Convert kilograms to pounds (multiply by 2.2). If no weight \
+is mentioned, omit the field or set it to null.
 - Keep responses SHORT. Max 2 sentences. They are spoken aloud.
 - Be encouraging, knowledgeable, and natural. Vary your phrasing.
 - If the user says something unclear or off-topic, respond helpfully \
@@ -79,6 +85,7 @@ class LLMResponse:
     """Parsed response from the LLM."""
     intent: str | None
     response: str
+    weight_lbs: float | None = None
 
 
 class LLMBrain:
@@ -96,15 +103,18 @@ class LLMBrain:
                 "Using keyword matching only."
             )
             self._client = None
+            self._rag = None
             return
 
         from openai import OpenAI
+        from rag_store import HealthRagStore
 
         self._client = OpenAI(api_key=api_key)
         self._model = model
         self._lock = threading.Lock()
         self._history: list[dict] = []
         self._max_history = 10
+        self._rag = HealthRagStore()
         print(f"LLM brain ready ({model}).")
 
     @property
@@ -133,8 +143,16 @@ class LLMBrain:
             f"Valid commands: {', '.join(context.available_commands) or 'none'}"
         )
 
+        rag_block = ""
+        if self._rag and self._rag.is_available:
+            from rag_store import build_rag_context
+            payloads = self._rag.search(transcript)
+            if payloads:
+                rag_block = f"\n[Health Docs]\n{build_rag_context(payloads)}\n"
+
         user_msg = (
-            f"[Workout Context]\n{chr(10).join(ctx_lines)}\n\n"
+            f"[Workout Context]\n{chr(10).join(ctx_lines)}\n"
+            f"{rag_block}\n"
             f"[User]\n{transcript}"
         )
 
@@ -162,12 +180,20 @@ class LLMBrain:
                     intent = None
 
                 resp_text = parsed.get("response", "")
+                weight = parsed.get("weight_lbs")
+                if weight is not None:
+                    try:
+                        weight = float(weight)
+                    except (ValueError, TypeError):
+                        weight = None
 
                 self._history.append({"role": "assistant", "content": raw})
                 if len(self._history) > self._max_history:
                     self._history = self._history[-self._max_history:]
 
-                return LLMResponse(intent=intent, response=resp_text)
+                return LLMResponse(
+                    intent=intent, response=resp_text, weight_lbs=weight,
+                )
 
             except Exception as exc:
                 print(f"[llm] Error: {exc}")

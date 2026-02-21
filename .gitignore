@@ -4,3 +4,5 @@ __pycache__/
 *.task
 .DS_Store
 .env
+health_pdfs/.rag_cache.npz
+health_pdfs/.rag_manifest.json

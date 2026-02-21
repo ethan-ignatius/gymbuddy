@@ -60,6 +60,7 @@ class VoiceResult:
     intent: str | None
     transcript: str
     response: str | None = None
+    weight_lbs: float | None = None
 
 
 def _classify_text(text: str) -> str:
@@ -235,6 +236,7 @@ class VoiceCommandListener:
                     intent=llm_resp.intent,
                     transcript=transcript,
                     response=llm_resp.response or None,
+                    weight_lbs=llm_resp.weight_lbs,
                 )
                 if vr.intent or vr.response:
                     self._command_queue.put(vr)

@@ -223,6 +223,7 @@ class LateralRaiseTracker(BaseTracker):
         self._feedback_expiry = now + 5.0
 
         self._speech_queue = self._build_speech_queue(issues)
+        self._check_injury_risk()
 
         # Reset accumulators
         self._peak_shoulder_angle = 0.0
