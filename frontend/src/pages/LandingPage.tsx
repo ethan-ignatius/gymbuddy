@@ -64,7 +64,7 @@ export default function LandingPage() {
             <SpotlightCard
               key={f.title}
               className="feature-card"
-              spotlightColor="rgba(232,196,104,0.15)"
+              spotlightColor="rgba(232,196,104,0.45)"
             >
               <div style={styles.featureInner}>
                 <span style={styles.featureIcon}>{f.icon}</span>
