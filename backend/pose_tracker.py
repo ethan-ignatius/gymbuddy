@@ -330,22 +330,113 @@ def draw_hud(frame: np.ndarray, fps: float, angles: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Workout session (set / rest management)
+# Workout routine (CSV-driven exercise queue)
+# ---------------------------------------------------------------------------
+
+import csv
+from collections import deque
+from dataclasses import dataclass
+
+
+EXERCISE_NAMES = {
+    "bicep_curl": "Bicep Curl",
+    "lateral_raise": "Lateral Raise",
+}
+
+EXERCISE_STATES = {
+    "bicep_curl": "bicep_curl",
+    "lateral_raise": "lateral_raise",
+}
+
+
+@dataclass
+class ExerciseConfig:
+    exercise: str       # "bicep_curl", "lateral_raise"
+    sets: int
+    reps: int
+    rest_seconds: float
+
+    @property
+    def display_name(self) -> str:
+        return EXERCISE_NAMES.get(self.exercise, self.exercise)
+
+
+class WorkoutRoutine:
+    """Ordered queue of exercises loaded from CSV, with skip/delay support."""
+
+    def __init__(self, exercises: list[ExerciseConfig]) -> None:
+        self._queue: deque[ExerciseConfig] = deque(exercises)
+        self._total = len(exercises)
+        self._completed = 0
+        self.current: ExerciseConfig | None = None
+        self.done = False
+
+    @staticmethod
+    def from_csv(path: str) -> "WorkoutRoutine":
+        exercises = []
+        with open(path, newline="") as f:
+            for row in csv.DictReader(f):
+                ex = ExerciseConfig(
+                    exercise=row["exercise"].strip(),
+                    sets=int(row["sets"]),
+                    reps=int(row["reps"]),
+                    rest_seconds=float(row["rest_seconds"]),
+                )
+                if ex.exercise in EXERCISE_STATES:
+                    exercises.append(ex)
+                else:
+                    print(f"Warning: unknown exercise '{ex.exercise}' in CSV, skipping.")
+        return WorkoutRoutine(exercises)
+
+    @property
+    def remaining(self) -> int:
+        return len(self._queue)
+
+    @property
+    def progress_str(self) -> str:
+        return f"{self._completed}/{self._total}"
+
+    def advance(self) -> ExerciseConfig | None:
+        """Move to the next exercise. Returns None when all are done."""
+        if not self._queue:
+            self.done = True
+            self.current = None
+            return None
+        self.current = self._queue.popleft()
+        return self.current
+
+    def complete_current(self) -> None:
+        self._completed += 1
+        self.current = None
+
+    def skip_current(self) -> None:
+        """Move the current exercise to the end of the queue."""
+        if self.current:
+            self._queue.append(self.current)
+            self.current = None
+
+    def summary(self) -> list[str]:
+        """Return a list of upcoming exercise names for display."""
+        items = []
+        if self.current:
+            items.append(f"> {self.current.display_name} (current)")
+        for ex in self._queue:
+            items.append(f"  {ex.display_name}")
+        return items
+
+
+# ---------------------------------------------------------------------------
+# Workout session (set / rest management for one exercise)
 # ---------------------------------------------------------------------------
 
 
 class WorkoutSession:
-    """Manages sets, rest periods, and rep goals for any exercise."""
+    """Manages sets, rest periods, and rep goals for one exercise block."""
 
-    def __init__(
-        self,
-        reps_per_set: int = 8,
-        rest_seconds: float = 60.0,
-        total_sets: int = 3,
-    ) -> None:
-        self.reps_per_set = reps_per_set
-        self.rest_seconds = rest_seconds
-        self.total_sets = total_sets
+    def __init__(self, config: ExerciseConfig) -> None:
+        self.reps_per_set = config.reps
+        self.rest_seconds = config.rest_seconds
+        self.total_sets = config.sets
 
         self.current_set = 0
         self.resting = False
@@ -370,7 +461,6 @@ class WorkoutSession:
         self._rest_warned = False
 
     def check_set_complete(self, trackers: dict) -> bool:
-        """Return True if either arm hit the rep target this frame."""
         if self.resting or self._finished:
             return False
         for t in trackers.values():
@@ -389,7 +479,6 @@ class WorkoutSession:
         return self.rest_remaining <= 0.0
 
     def advance_set(self) -> bool:
-        """Move to the next set. Returns False if all sets are done."""
         self.resting = False
         self.current_set += 1
         if self.current_set > self.total_sets:
@@ -398,14 +487,12 @@ class WorkoutSession:
         return True
 
     def should_warn_rest_break(self) -> bool:
-        """Returns True once per rest period if the user should be warned."""
         if not self.resting or self._rest_warned:
             return False
         self._rest_warned = True
         return True
 
     def reset_rest_warn(self) -> None:
-        """Allow another rest-break warning (call when movement detected)."""
         self._rest_warned = False
 
 
@@ -414,26 +501,36 @@ class WorkoutSession:
 # ---------------------------------------------------------------------------
 
 STATE_IDLE = "idle"
+STATE_ANNOUNCE = "announce"
 STATE_CURL = "bicep_curl"
 STATE_RAISE = "lateral_raise"
 STATE_REST = "resting"
 
 
-def _state_label(state: str, session: "WorkoutSession | None") -> str:
+def _state_label(
+    state: str, session: "WorkoutSession | None",
+    routine: "WorkoutRoutine | None",
+) -> str:
     if state == STATE_IDLE:
-        return "IDLE - Say an exercise to start"
+        return "IDLE - Say 'start workout' or an exercise name"
+    if state == STATE_ANNOUNCE and routine and routine.current:
+        return f"UP NEXT: {routine.current.display_name} - Say 'start' or 'skip'"
     if state == STATE_REST and session:
         rem = int(session.rest_remaining)
-        return f"REST  {rem}s remaining  (Set {session.current_set}/{session.total_sets})"
-    ex_name = "BICEP CURL" if state == STATE_CURL else "LATERAL RAISE"
+        return f"REST  {rem}s  (Set {session.current_set}/{session.total_sets})"
+    ex_name = EXERCISE_NAMES.get(state, state.upper())
     set_info = ""
     if session:
         set_info = f"  Set {session.current_set}/{session.total_sets}"
-    return f"{ex_name}{set_info} - Say 'stop' to end"
+    rout_info = ""
+    if routine:
+        rout_info = f"  [{routine.progress_str}]"
+    return f"{ex_name}{set_info}{rout_info} - Say 'stop' to end"
 
 
 def draw_state_bar(
     frame: np.ndarray, state: str, session: "WorkoutSession | None",
+    routine: "WorkoutRoutine | None",
     listener_active: bool, processing: bool,
 ) -> None:
     fh, fw = frame.shape[:2]
@@ -442,7 +539,7 @@ def draw_state_bar(
     cv2.rectangle(overlay, (0, fh - bar_h), (fw, fh), COLOR_HUD, -1)
     cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
 
-    label = _state_label(state, session)
+    label = _state_label(state, session, routine)
     cv2.putText(
         frame, label, (14, fh - 14),
         cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_TEXT, 2, cv2.LINE_AA,
@@ -459,7 +556,6 @@ def draw_state_bar(
 
 
 def draw_rest_overlay(frame: np.ndarray, session: WorkoutSession) -> None:
-    """Large centered rest countdown overlay."""
     fh, fw = frame.shape[:2]
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, fh // 3), (fw, fh * 2 // 3), COLOR_HUD, -1)
@@ -487,9 +583,53 @@ def draw_rest_overlay(frame: np.ndarray, session: WorkoutSession) -> None:
         )
 
 
+def draw_announce_overlay(
+    frame: np.ndarray, routine: WorkoutRoutine,
+) -> None:
+    """Show upcoming exercise + queue on screen while waiting for 'start'."""
+    fh, fw = frame.shape[:2]
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, fh // 4), (fw, fh * 3 // 4), COLOR_HUD, -1)
+    cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+
+    cfg = routine.current
+    if not cfg:
+        return
+
+    lines = [
+        (f"NEXT: {cfg.display_name}", 1.1, 3, COLOR_TEXT),
+        (f"{cfg.sets} sets x {cfg.reps} reps   |   {int(cfg.rest_seconds)}s rest", 0.65, 2, COLOR_WARN),
+        ("", 0.5, 1, COLOR_TEXT),
+        ("Say 'start' to begin  |  'skip' to do later", 0.55, 1, COLOR_GOOD),
+    ]
+
+    upcoming = [ex.display_name for ex in routine._queue]
+    if upcoming:
+        lines.append(("", 0.4, 1, COLOR_TEXT))
+        lines.append((f"Coming up: {', '.join(upcoming)}", 0.5, 1, (150, 150, 150)))
+
+    total_h = sum(40 if s == 1.1 else 30 for _, s, *_ in lines)
+    y = fh // 2 - total_h // 2
+
+    for txt, scale, thickness, color in lines:
+        if not txt:
+            y += 15
+            continue
+        sz = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
+        tx = (fw - sz[0]) // 2
+        y += int(40 if scale > 1.0 else 30)
+        cv2.putText(
+            frame, txt, (tx, y),
+            cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
+
+
+DEFAULT_WORKOUT = "workouts/example_day.csv"
 
 
 def _make_trackers(exercise_state: str) -> dict:
@@ -501,7 +641,6 @@ def _make_trackers(exercise_state: str) -> dict:
 
 
 def _exercise_is_active(angles: dict, exercise_state: str) -> bool:
-    """Heuristic: is the user performing reps during rest?"""
     if exercise_state == STATE_CURL:
         for side in ("L", "R"):
             ea = angles.get(f"{side} elbow")
@@ -515,11 +654,22 @@ def _exercise_is_active(angles: dict, exercise_state: str) -> bool:
     return False
 
 
-def main(
-    reps_per_set: int = 8,
-    rest_seconds: float = 60.0,
-    total_sets: int = 3,
-) -> None:
+def _go_idle() -> tuple[str, str, dict, "WorkoutSession | None", "WorkoutRoutine | None"]:
+    return STATE_IDLE, STATE_IDLE, {}, None, None
+
+
+def _start_exercise(
+    config: ExerciseConfig,
+) -> tuple[str, dict, WorkoutSession]:
+    """Begin an exercise block from its config."""
+    ex_state = EXERCISE_STATES[config.exercise]
+    trackers = _make_trackers(ex_state)
+    session = WorkoutSession(config)
+    session.start()
+    return ex_state, trackers, session
+
+
+def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
     from tts import VoiceCoach
     from voice_command import VoiceCommandListener
 
@@ -559,14 +709,14 @@ def main(
     state = STATE_IDLE
     exercise_type = STATE_IDLE
     session: WorkoutSession | None = None
+    routine: WorkoutRoutine | None = None
 
     prev_time = time.time()
     fps = 0.0
     frame_ts = 0
 
-    print("GymBuddy ready. Say an exercise to start. Press 'q' to quit.")
-    print(f"  Config: {reps_per_set} reps/set, {rest_seconds:.0f}s rest, {total_sets} sets")
-    voice.say("Gym Buddy ready. Tell me which exercise you want to do.")
+    print("GymBuddy ready. Say 'start workout' or an exercise name. Press 'q' to quit.")
+    voice.say("Gym Buddy ready. Say start workout to begin your routine.")
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -578,23 +728,69 @@ def main(
 
         # --- Voice commands ---
         cmd = listener.get_command()
-        if state == STATE_IDLE:
-            if cmd in ("start_bicep_curl", "start_lateral_raise"):
+
+        if cmd == "stop":
+            if state != STATE_IDLE:
+                voice.say("Workout stopped.")
+                print("[state] -> IDLE (stopped)")
+            state, exercise_type, trackers, session, routine = _go_idle()
+
+        elif state == STATE_IDLE:
+            if cmd == "start_workout":
+                import pathlib
+                if not pathlib.Path(workout_csv).exists():
+                    voice.say(f"Workout file not found.")
+                    print(f"[error] {workout_csv} not found")
+                else:
+                    routine = WorkoutRoutine.from_csv(workout_csv)
+                    cfg = routine.advance()
+                    if cfg:
+                        state = STATE_ANNOUNCE
+                        voice.say(
+                            f"Starting workout. First up: {cfg.display_name}. "
+                            f"{cfg.sets} sets of {cfg.reps} reps. "
+                            f"Say start when ready, or skip to do it later."
+                        )
+                        print(f"[state] -> ANNOUNCE: {cfg.display_name}")
+                    else:
+                        voice.say("Workout file is empty.")
+                        routine = None
+
+            elif cmd in ("start_bicep_curl", "start_lateral_raise"):
                 exercise_type = STATE_CURL if cmd == "start_bicep_curl" else STATE_RAISE
-                state = exercise_type
-                trackers = _make_trackers(exercise_type)
-                session = WorkoutSession(reps_per_set, rest_seconds, total_sets)
-                session.start()
-                name = "bicep curl" if exercise_type == STATE_CURL else "lateral raise"
-                voice.say(f"Starting {name}. Set 1 of {total_sets}.")
-                print(f"[state] -> {name.upper()} (set 1/{total_sets})")
-        elif cmd == "stop":
-            voice.say("Stopping analysis.")
-            print("[state] -> IDLE")
-            state = STATE_IDLE
-            exercise_type = STATE_IDLE
-            trackers = {}
-            session = None
+                cfg = ExerciseConfig(
+                    exercise="bicep_curl" if exercise_type == STATE_CURL else "lateral_raise",
+                    sets=3, reps=8, rest_seconds=60.0,
+                )
+                state, trackers, session = _start_exercise(cfg)
+                exercise_type = state
+                voice.say(f"Starting {cfg.display_name}. Set 1 of {cfg.sets}.")
+                print(f"[state] -> {cfg.display_name.upper()} (ad-hoc)")
+
+        elif state == STATE_ANNOUNCE:
+            is_go = cmd in ("ready", "start_bicep_curl", "start_lateral_raise")
+            if is_go and routine and routine.current:
+                cfg = routine.current
+                state, trackers, session = _start_exercise(cfg)
+                exercise_type = state
+                voice.say(f"Let's go! {cfg.display_name}, set 1 of {cfg.sets}.")
+                print(f"[state] -> {cfg.display_name.upper()} (set 1/{cfg.sets})")
+
+            elif cmd == "skip" and routine:
+                skipped = routine.current
+                routine.skip_current()
+                nxt = routine.advance()
+                if nxt:
+                    state = STATE_ANNOUNCE
+                    voice.say(
+                        f"Skipped {skipped.display_name}, moved to later. "
+                        f"Next: {nxt.display_name}. "
+                        f"{nxt.sets} sets of {nxt.reps}. Say start or skip."
+                    )
+                    print(f"[state] -> ANNOUNCE: {nxt.display_name} (skipped {skipped.display_name})")
+                else:
+                    voice.say("No more exercises. Workout done!")
+                    state, exercise_type, trackers, session, routine = _go_idle()
 
         # --- Detection ---
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -620,7 +816,6 @@ def main(
                 lean = torso_lean_angle(lms)
                 now_t = time.time()
                 update_curl_trackers(trackers, lms, angles, hand_supination, lean, now_t)
-
             elif state == STATE_RAISE:
                 lean = torso_lean_angle(lms)
                 now_t = time.time()
@@ -633,7 +828,6 @@ def main(
                     if session.should_warn_rest_break():
                         rem = int(session.rest_remaining)
                         voice.say(f"Take more time to rest. {rem} seconds remaining.")
-                        print(f"[rest] Movement detected – warned user ({rem}s left)")
                     session.reset_rest_warn()
 
                 if session.check_rest_done():
@@ -643,12 +837,28 @@ def main(
                         voice.say(f"Rest over. Set {session.current_set} of {session.total_sets}. Let's go!")
                         print(f"[state] -> SET {session.current_set}/{session.total_sets}")
                     else:
-                        voice.say("All sets complete. Great workout!")
-                        print("[state] -> IDLE (workout complete)")
-                        state = STATE_IDLE
-                        exercise_type = STATE_IDLE
-                        trackers = {}
-                        session = None
+                        # All sets done for this exercise
+                        if routine:
+                            routine.complete_current()
+                            nxt = routine.advance()
+                            if nxt:
+                                state = STATE_ANNOUNCE
+                                session = None
+                                trackers = {}
+                                voice.say(
+                                    f"Exercise complete! Next: {nxt.display_name}. "
+                                    f"{nxt.sets} sets of {nxt.reps}. "
+                                    f"Say start when ready, or skip."
+                                )
+                                print(f"[state] -> ANNOUNCE: {nxt.display_name}")
+                            else:
+                                voice.say("All exercises complete. Great workout!")
+                                print("[state] -> IDLE (routine complete)")
+                                state, exercise_type, trackers, session, routine = _go_idle()
+                        else:
+                            voice.say("All sets complete. Great workout!")
+                            print("[state] -> IDLE (exercise complete)")
+                            state, exercise_type, trackers, session, routine = _go_idle()
 
             elif state in (STATE_CURL, STATE_RAISE) and session.check_set_complete(trackers):
                 session.begin_rest()
@@ -678,8 +888,10 @@ def main(
             draw_live_alerts(frame, trackers, now)
         elif state == STATE_REST and session:
             draw_rest_overlay(frame, session)
+        elif state == STATE_ANNOUNCE and routine:
+            draw_announce_overlay(frame, routine)
 
-        draw_state_bar(frame, state, session, listener.is_listening, listener.is_processing)
+        draw_state_bar(frame, state, session, routine, listener.is_listening, listener.is_processing)
         draw_hud(frame, fps, angles)
         cv2.imshow("GymBuddy - Pose Tracker", frame)
 
@@ -696,8 +908,9 @@ def main(
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="GymBuddy Pose Tracker")
-    parser.add_argument("--reps", type=int, default=8, help="Reps per set (default: 8)")
-    parser.add_argument("--rest", type=float, default=60.0, help="Rest between sets in seconds (default: 60)")
-    parser.add_argument("--sets", type=int, default=3, help="Total sets (default: 3)")
+    parser.add_argument(
+        "--workout", type=str, default=DEFAULT_WORKOUT,
+        help=f"Path to workout CSV (default: {DEFAULT_WORKOUT})",
+    )
     args = parser.parse_args()
-    main(reps_per_set=args.reps, rest_seconds=args.rest, total_sets=args.sets)
+    main(workout_csv=args.workout)
