@@ -22,9 +22,14 @@ export default function LandingPage() {
 
       <nav style={styles.nav}>
         <span style={styles.logo}>GB</span>
-        <button onClick={() => navigate("/signup")} style={styles.navBtn}>
-          Sign up
-        </button>
+        <div style={styles.navRight}>
+          <button onClick={() => navigate("/login")} style={styles.navBtnText}>
+            Log in
+          </button>
+          <button onClick={() => navigate("/signup")} style={styles.navBtn}>
+            Sign up
+          </button>
+        </div>
       </nav>
 
       <main style={styles.main}>
@@ -156,6 +161,21 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.85rem",
     letterSpacing: "0.05em",
     fontFamily: "'DM Sans', sans-serif",
+  },
+  navRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.75rem",
+  },
+  navBtnText: {
+    background: "transparent",
+    border: "none",
+    color: "#b0aca5",
+    cursor: "pointer",
+    fontSize: "0.85rem",
+    letterSpacing: "0.05em",
+    fontFamily: "'DM Sans', sans-serif",
+    padding: "0.4rem 0.5rem",
   },
   main: {
     flex: 1,
