@@ -18,6 +18,7 @@ export async function createUser(data: SignupPayload): Promise<User> {
     data: {
       email: data.email,
       phoneNumber: data.phoneNumber,
+      carrierGateway: data.carrier,
       heightCm: data.heightCm,
       weightKg: data.weightKg,
       goal: data.goal,

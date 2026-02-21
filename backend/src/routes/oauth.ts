@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getConsentUrl, exchangeCodeForTokens } from "../lib/googleAuth.js";
+import { exchangeCodeForTokens, getConsentUrl } from "../lib/googleAuth.js";
 import { prisma } from "../lib/db.js";
 import { startOnboarding } from "../lib/conversation.js";
 
@@ -33,7 +33,6 @@ oauthRouter.get("/google/callback", async (req, res) => {
       },
     });
 
-    // Start the text conversation onboarding
     await startOnboarding(user);
 
     return res.send(`
@@ -42,7 +41,7 @@ oauthRouter.get("/google/callback", async (req, res) => {
           <div style="text-align: center; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); max-width: 420px;">
             <div style="width: 48px; height: 48px; margin: 0 auto 1rem; background: #22c55e; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700;">✓</div>
             <h2 style="margin: 0 0 0.5rem;">Calendar connected!</h2>
-            <p style="color: #555;">Check your phone — I just texted you to set up your workout schedule. We'll figure out the best days and times together.</p>
+            <p style="color: #555;">Check your phone — GymBuddy just texted you. Reply to set up your workout schedule!</p>
           </div>
         </body>
       </html>

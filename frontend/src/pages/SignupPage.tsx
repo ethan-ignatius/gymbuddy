@@ -5,6 +5,7 @@ import SignupSuccess from "../components/SignupSuccess";
 export type SignupPayload = {
   email: string;
   phoneNumber: string;
+  carrier: string;
   heightCm: number;
   weightKg: number;
   goal: "lose_fat" | "strength_and_size" | "strength_without_size";

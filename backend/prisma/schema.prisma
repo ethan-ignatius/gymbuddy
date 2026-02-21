@@ -11,6 +11,7 @@ model User {
   id                 String   @id @default(cuid())
   email              String   @unique
   phoneNumber        String   @unique
+  carrierGateway     String   @default("vtext.com")
   heightCm           Int
   weightKg           Int
   goal               String   // "lose_fat" | "strength_and_size" | "strength_without_size"

@@ -77,7 +77,10 @@ export async function createCalendarEvent(
       description: event.description,
       start: { dateTime: event.start.toISOString() },
       end: { dateTime: event.end.toISOString() },
-      reminders: { useDefault: false, overrides: [] },
+      reminders: {
+        useDefault: false,
+        overrides: [{ method: "popup", minutes: 15 }],
+      },
     },
   });
 

@@ -6,11 +6,18 @@ import { getConsentUrl } from "../lib/googleAuth.js";
 export const signupRouter = Router();
 
 signupRouter.post("/", async (req, res) => {
+  console.log("[Signup] body:", JSON.stringify(req.body));
   const parsed = signupBodySchema.safeParse(req.body);
   if (!parsed.success) {
+    const flat = parsed.error.flatten();
+    console.log("[Signup] validation errors:", JSON.stringify(flat.fieldErrors));
+    const fieldMessages = Object.entries(flat.fieldErrors)
+      .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(", ")}`)
+      .join("; ");
     return res.status(400).json({
       error: "Validation failed",
-      details: parsed.error.flatten(),
+      message: fieldMessages || "Invalid input",
+      details: flat,
     });
   }
 
