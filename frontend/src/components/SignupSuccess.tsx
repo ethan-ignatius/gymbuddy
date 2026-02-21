@@ -1,24 +1,24 @@
 type Props = {
   calendarAuthUrl: string;
-  scheduled: number;
 };
 
-export default function SignupSuccess({ calendarAuthUrl, scheduled }: Props) {
+export default function SignupSuccess({ calendarAuthUrl }: Props) {
   return (
     <main style={styles.main}>
       <div style={styles.card}>
         <div style={styles.icon}>✓</div>
-        <h1 style={styles.title}>You're all set</h1>
+        <h1 style={styles.title}>Account created!</h1>
         <p style={styles.message}>
-          I've generated your workout plan and scheduled <strong>{scheduled} workouts</strong> for
-          next week. I'll text you before each one so you leave on time.
+          One more step — connect your Google Calendar so I can find your free
+          slots and never book over anything.
         </p>
 
         <a href={calendarAuthUrl} style={styles.calendarButton}>
           Connect Google Calendar
         </a>
         <p style={styles.hint}>
-          Link your calendar so I can find your free slots and add gym events automatically.
+          After connecting, I'll text you to set up your workout schedule
+          together. We'll figure out the best days and times.
         </p>
       </div>
     </main>
@@ -79,5 +79,6 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: "0.75rem",
     fontSize: "0.85rem",
     color: "#888",
+    lineHeight: 1.5,
   },
 };

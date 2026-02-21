@@ -1,14 +1,10 @@
 import { Router } from "express";
 import { getConsentUrl, exchangeCodeForTokens } from "../lib/googleAuth.js";
 import { prisma } from "../lib/db.js";
+import { startOnboarding } from "../lib/conversation.js";
 
 export const oauthRouter = Router();
 
-/**
- * GET /api/oauth/google?userId=xxx
- * Redirects the user to Google's consent screen.
- * After signup, redirect user here so they grant calendar access.
- */
 oauthRouter.get("/google", (req, res) => {
   const userId = req.query.userId as string | undefined;
   if (!userId) {
@@ -18,10 +14,6 @@ oauthRouter.get("/google", (req, res) => {
   return res.redirect(url);
 });
 
-/**
- * GET /api/oauth/google/callback?code=...&state=userId
- * Google redirects here after consent. Exchange code for tokens and save them.
- */
 oauthRouter.get("/google/callback", async (req, res) => {
   const code = req.query.code as string | undefined;
   const userId = req.query.state as string | undefined;
@@ -33,7 +25,7 @@ oauthRouter.get("/google/callback", async (req, res) => {
   try {
     const tokens = await exchangeCodeForTokens(code);
 
-    await prisma.user.update({
+    const user = await prisma.user.update({
       where: { id: userId },
       data: {
         googleAccessToken: tokens.access_token ?? null,
@@ -41,13 +33,16 @@ oauthRouter.get("/google/callback", async (req, res) => {
       },
     });
 
+    // Start the text conversation onboarding
+    await startOnboarding(user);
+
     return res.send(`
       <html>
         <body style="font-family: system-ui; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f5f5f5;">
-          <div style="text-align: center; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+          <div style="text-align: center; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); max-width: 420px;">
             <div style="width: 48px; height: 48px; margin: 0 auto 1rem; background: #22c55e; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700;">✓</div>
-            <h2>Calendar connected!</h2>
-            <p>GymBuddy can now schedule workouts on your Google Calendar.</p>
+            <h2 style="margin: 0 0 0.5rem;">Calendar connected!</h2>
+            <p style="color: #555;">Check your phone — I just texted you to set up your workout schedule. We'll figure out the best days and times together.</p>
           </div>
         </body>
       </html>

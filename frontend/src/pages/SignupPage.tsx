@@ -11,13 +11,8 @@ export type SignupPayload = {
   gymTravelMinutes: number;
 };
 
-type SignupResult = {
-  calendarAuthUrl: string;
-  scheduled: number;
-};
-
 export default function SignupPage() {
-  const [result, setResult] = useState<SignupResult | null>(null);
+  const [calendarAuthUrl, setCalendarAuthUrl] = useState<string | null>(null);
 
   const handleSubmit = async (payload: SignupPayload) => {
     const res = await fetch("/api/signup", {
@@ -29,19 +24,11 @@ export default function SignupPage() {
     if (!res.ok) {
       throw new Error(data.message ?? data.error ?? `Request failed: ${res.status}`);
     }
-    setResult({
-      calendarAuthUrl: data.calendarAuthUrl,
-      scheduled: data.scheduled,
-    });
+    setCalendarAuthUrl(data.calendarAuthUrl);
   };
 
-  if (result) {
-    return (
-      <SignupSuccess
-        calendarAuthUrl={result.calendarAuthUrl}
-        scheduled={result.scheduled}
-      />
-    );
+  if (calendarAuthUrl) {
+    return <SignupSuccess calendarAuthUrl={calendarAuthUrl} />;
   }
   return <SignupForm onSubmit={handleSubmit} />;
 }

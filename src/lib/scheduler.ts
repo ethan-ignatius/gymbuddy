@@ -2,21 +2,25 @@ import type { User } from "@prisma/client";
 import type { WorkoutPlan } from "../types/workout.js";
 import * as calendar from "./calendar.js";
 import type { BusySlot } from "./calendar.js";
-import { saveScheduledWorkout } from "./db.js";
+import { saveScheduledWorkout, prisma } from "./db.js";
 import { sendSms } from "./sms.js";
 
 const WORKOUT_DURATION_MIN = 60;
-const EARLIEST_HOUR = 6;
-const LATEST_HOUR = 21;
 
-function getNextMonday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const daysUntilMonday = day === 0 ? 1 : day === 1 ? 7 : 8 - day;
-  d.setDate(d.getDate() + daysUntilMonday);
-  return d;
-}
+const TIME_RANGES: Record<string, { earliest: number; latest: number }> = {
+  morning:   { earliest: 6, latest: 11 },
+  afternoon: { earliest: 12, latest: 16 },
+  evening:   { earliest: 17, latest: 21 },
+};
+
+const DAY_MAP: Record<string, number> = {
+  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+};
+
+export type ScheduleResult = {
+  scheduled: number;
+  details: { day: string; time: string; blockName: string }[];
+};
 
 function slotsOverlap(
   a: { start: Date; end: Date },
@@ -26,92 +30,109 @@ function slotsOverlap(
 }
 
 /**
- * Generate candidate 1-hour time slots for a given day,
- * filtering out ones that conflict with existing calendar events.
+ * Find free slots on a given day, accounting for travel time and existing events.
+ * Never overlaps with anything on the calendar.
  */
 function findFreeSlots(
   day: Date,
   busySlots: BusySlot[],
-  travelMin: number
+  travelMin: number,
+  timePref: string
 ): { start: Date; end: Date }[] {
+  const range = TIME_RANGES[timePref] ?? TIME_RANGES.morning;
   const free: { start: Date; end: Date }[] = [];
-  const totalMin = WORKOUT_DURATION_MIN + travelMin * 2; // travel there + back
+  const buffer = travelMin * 2; // travel to gym + back
 
-  for (let hour = EARLIEST_HOUR; hour <= LATEST_HOUR - 1; hour++) {
-    const start = new Date(day);
-    start.setHours(hour, 0, 0, 0);
-    const end = new Date(start);
-    end.setMinutes(end.getMinutes() + totalMin);
+  for (let hour = range.earliest; hour <= range.latest; hour++) {
+    for (const minuteOffset of [0, 30]) {
+      const start = new Date(day);
+      start.setHours(hour, minuteOffset, 0, 0);
 
-    const hasConflict = busySlots.some((busy) => slotsOverlap({ start, end }, busy));
-    if (!hasConflict) {
-      free.push({
-        start,
-        end: new Date(start.getTime() + WORKOUT_DURATION_MIN * 60_000),
-      });
+      // The block we're "claiming" includes travel buffer
+      const blockStart = new Date(start.getTime() - travelMin * 60_000);
+      const blockEnd = new Date(start.getTime() + (WORKOUT_DURATION_MIN + travelMin) * 60_000);
+
+      const hasConflict = busySlots.some((busy) =>
+        slotsOverlap({ start: blockStart, end: blockEnd }, busy)
+      );
+
+      if (!hasConflict) {
+        free.push({
+          start,
+          end: new Date(start.getTime() + WORKOUT_DURATION_MIN * 60_000),
+        });
+      }
     }
   }
   return free;
 }
 
-/**
- * Pick the best slot from a day's free slots.
- * Prefers morning (9-11am), then afternoon (4-7pm), then whatever's left.
- */
-function pickBestSlot(
-  slots: { start: Date; end: Date }[]
-): { start: Date; end: Date } | null {
-  if (slots.length === 0) return null;
+function getNextWeekDates(preferredDays: string[]): Date[] {
+  const now = new Date();
+  const today = now.getDay();
+  const dates: Date[] = [];
 
-  const morning = slots.find((s) => s.start.getHours() >= 9 && s.start.getHours() <= 11);
-  if (morning) return morning;
+  for (const dayName of preferredDays) {
+    const targetDay = DAY_MAP[dayName];
+    if (targetDay === undefined) continue;
 
-  const afternoon = slots.find((s) => s.start.getHours() >= 16 && s.start.getHours() <= 19);
-  if (afternoon) return afternoon;
+    let daysAhead = targetDay - today;
+    if (daysAhead <= 0) daysAhead += 7; // always next occurrence
 
-  return slots[0];
+    const d = new Date(now);
+    d.setDate(d.getDate() + daysAhead);
+    d.setHours(0, 0, 0, 0);
+    dates.push(d);
+  }
+
+  return dates.sort((a, b) => a.getTime() - b.getTime());
 }
 
 export async function scheduleWorkoutsForNextWeek(
   user: User,
   plan: WorkoutPlan
-): Promise<{ scheduled: number }> {
-  const weekStart = getNextMonday();
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 7);
+): Promise<ScheduleResult> {
+  const preferredDays = user.preferredDays
+    ? user.preferredDays.split(",").map((d) => d.trim())
+    : ["mon", "wed", "fri", "sat"].slice(0, plan.daysPerWeek);
 
-  const busySlots = await calendar.listEvents(user, weekStart, weekEnd);
+  const timePref = user.preferredTime ?? "morning";
+  const targetDates = getNextWeekDates(preferredDays);
+
+  // Fetch ALL calendar events for the date range
+  const rangeStart = targetDates[0] ?? new Date();
+  const rangeEnd = new Date(targetDates[targetDates.length - 1] ?? new Date());
+  rangeEnd.setDate(rangeEnd.getDate() + 1);
+
+  const busySlots = await calendar.listEvents(user, rangeStart, rangeEnd);
+
   const blocks = plan.blocks.slice(0, plan.daysPerWeek);
-  const scheduledSlots: { start: Date; end: Date }[] = [];
+  const scheduledSlots: BusySlot[] = [];
+  const details: ScheduleResult["details"] = [];
   let scheduledCount = 0;
 
-  for (let i = 0; i < blocks.length; i++) {
+  for (let i = 0; i < Math.min(blocks.length, targetDates.length); i++) {
     const block = blocks[i];
+    const day = targetDates[i];
 
-    // Spread workouts across the week with rest days
-    const intervalDays = Math.max(1, Math.floor(7 / plan.daysPerWeek));
-    const day = new Date(weekStart);
-    day.setDate(weekStart.getDate() + i * intervalDays);
+    // Combine real calendar busy + already-scheduled gymbuddy slots
+    const allBusy: BusySlot[] = [...busySlots, ...scheduledSlots];
+    const freeSlots = findFreeSlots(day, allBusy, user.gymTravelMin, timePref);
 
-    // Merge busy slots with already-scheduled gymbuddy slots to avoid self-conflicts
-    const allBusy: BusySlot[] = [
-      ...busySlots,
-      ...scheduledSlots.map((s) => ({ start: s.start, end: s.end })),
-    ];
-
-    const freeSlots = findFreeSlots(day, allBusy, user.gymTravelMin);
-    const chosen = pickBestSlot(freeSlots);
-
-    if (!chosen) {
-      console.log(`No free slot found for ${block.name} on ${day.toDateString()}`);
+    if (freeSlots.length === 0) {
+      console.log(`No free ${timePref} slot on ${day.toDateString()} for ${block.name}`);
       continue;
     }
+
+    const chosen = freeSlots[0]; // first available in preferred range
 
     const eventId = await calendar.createCalendarEvent(user, {
       start: chosen.start,
       end: chosen.end,
       title: `Gym – ${block.name}`,
-      description: formatWorkoutDescription(block),
+      description: block.exercises
+        .map((e) => `• ${e.name}: ${e.sets}×${e.reps}`)
+        .join("\n") + "\n\nScheduled by GymBuddy",
     });
 
     await saveScheduledWorkout({
@@ -123,27 +144,16 @@ export async function scheduleWorkoutsForNextWeek(
       status: "scheduled",
     });
 
-    scheduledSlots.push(chosen);
+    scheduledSlots.push({ start: chosen.start, end: chosen.end });
+    details.push({
+      day: day.toLocaleDateString("en-US", { weekday: "long" }),
+      time: chosen.start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+      blockName: block.name,
+    });
     scheduledCount++;
   }
 
-  const dayList = scheduledSlots
-    .map((s) => s.start.toLocaleDateString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }))
-    .join(", ");
-
-  await sendSms(
-    user.phoneNumber,
-    `Hey! Your GymBuddy plan is set — ${scheduledCount} workouts next week: ${dayList}. I'll text you before each one so you leave on time. Let's get it!`
-  );
-
-  return { scheduled: scheduledCount };
-}
-
-function formatWorkoutDescription(block: { name: string; exercises: { name: string; sets: number; reps: string }[] }): string {
-  const lines = block.exercises.map(
-    (e) => `• ${e.name}: ${e.sets}×${e.reps}`
-  );
-  return `${block.name}\n\n${lines.join("\n")}\n\nScheduled by GymBuddy`;
+  return { scheduled: scheduledCount, details };
 }
 
 export async function rescheduleWorkout(
@@ -151,34 +161,32 @@ export async function rescheduleWorkout(
   workoutId: string,
   plan: WorkoutPlan
 ): Promise<{ newStart: Date; newEnd: Date } | null> {
-  const { prisma } = await import("./db.js");
   const workout = await prisma.scheduledWorkout.findUnique({
     where: { id: workoutId },
   });
   if (!workout || workout.userId !== user.id) return null;
 
-  // Cancel old calendar event
   if (workout.calendarEventId) {
     await calendar.deleteEvent(user, workout.calendarEventId);
   }
 
-  // Look for a free slot in the next 3 days
+  const timePref = user.preferredTime ?? "morning";
   const now = new Date();
   const searchEnd = new Date(now);
-  searchEnd.setDate(searchEnd.getDate() + 3);
+  searchEnd.setDate(searchEnd.getDate() + 5);
   const busySlots = await calendar.listEvents(user, now, searchEnd);
 
-  for (let dayOffset = 0; dayOffset < 3; dayOffset++) {
+  for (let dayOffset = 0; dayOffset < 5; dayOffset++) {
     const day = new Date(now);
     day.setDate(day.getDate() + dayOffset);
     day.setHours(0, 0, 0, 0);
 
-    const freeSlots = findFreeSlots(day, busySlots, user.gymTravelMin);
-    // Skip slots in the past
+    const freeSlots = findFreeSlots(day, busySlots, user.gymTravelMin, timePref);
     const futureSlots = freeSlots.filter((s) => s.start > now);
-    const chosen = pickBestSlot(futureSlots);
 
-    if (chosen) {
+    if (futureSlots.length > 0) {
+      const chosen = futureSlots[0];
+
       const newEventId = await calendar.createCalendarEvent(user, {
         start: chosen.start,
         end: chosen.end,
@@ -200,7 +208,6 @@ export async function rescheduleWorkout(
     }
   }
 
-  // No slot found — mark cancelled
   await prisma.scheduledWorkout.update({
     where: { id: workoutId },
     data: { status: "cancelled" },

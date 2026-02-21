@@ -43,7 +43,7 @@ export async function getNextWorkoutForUser(userId: string) {
   return prisma.scheduledWorkout.findFirst({
     where: {
       userId,
-      status: "scheduled",
+      status: { in: ["scheduled", "rescheduled"] },
       startTime: { gte: new Date() },
     },
     orderBy: { startTime: "asc" },
