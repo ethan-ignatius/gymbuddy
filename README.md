@@ -1,15 +1,59 @@
-# GymBuddy - Pose Tracker
+# GymBuddy - Hackalytics 2026
 
-Real-time body joint tracking using [MediaPipe Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker). Tracks 33 body landmarks via your webcam and displays a skeleton overlay with joint angles.
+GymBuddy combines:
+- A **real-time pose tracker** using [MediaPipe Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
+- A **backend + frontend app** for signup, workout planning, scheduling, and SMS-based rescheduling
 
-## Setup
+## App Setup (Backend + Frontend)
+
+### Backend
+
+Requirements: Node 18+, PostgreSQL.
+
+1. Copy `.env.example` to `.env` and set `DATABASE_URL`.
+2. Run:
+
+```bash
+npm install
+npx prisma generate
+npx prisma migrate deploy
+# or: npx prisma db push
+npm run dev
+```
+
+Backend runs on http://localhost:3001.
+
+### Frontend
+
+Run:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs on http://localhost:5173 and proxies `/api` and `/webhooks` to the backend.
+
+## API
+
+- `POST /api/signup` — body: `{ email, phoneNumber, heightCm, weightKg, goal, gymTravelMinutes }`. Creates user, generates plan, schedules next week, returns JSON.
+- `POST /webhooks/sms` — Twilio incoming SMS (e.g. “can’t make it” → reschedule).
+- `POST /api/schedule-next-week` — body: `{ userId }`. Re-runs scheduling for that user (for testing).
+
+## Pose Tracker Setup
 
 **Requires Python 3.9 – 3.12.**
 
 ```bash
 # Create a virtual environment (recommended)
 python3 -m venv .venv
+
+# Activate (macOS/Linux)
 source .venv/bin/activate
+
+# Activate (Windows PowerShell)
+.venv\Scripts\Activate.ps1
 
 # Install dependencies
 pip install -r requirements.txt
@@ -17,13 +61,13 @@ pip install -r requirements.txt
 
 The model file (`pose_landmarker_lite.task`) is downloaded automatically on first run.
 
-## Usage
+## Pose Tracker Usage
 
 ```bash
 python pose_tracker.py
 ```
 
-- A window titled **GymBuddy - Pose Tracker** will open showing your webcam feed with skeleton overlay.
+- A window titled **GymBuddy - Pose Tracker** opens showing your webcam feed with skeleton overlay.
 - The HUD in the top-right corner displays FPS and key joint angles (elbows, knees, shoulders).
 - Red dots indicate low-confidence landmarks; green dots are high-confidence.
 - Press **q** to quit.

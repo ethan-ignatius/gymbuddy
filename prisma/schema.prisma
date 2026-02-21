@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  phoneNumber        String   @unique
+  heightCm           Int
+  weightKg           Int
+  goal               String   // "lose_fat" | "strength_and_size" | "strength_without_size"
+  timezone           String   @default("America/New_York")
+  gymTravelMin       Int
+
+  // Google OAuth
+  googleAccessToken  String?
+  googleRefreshToken String?
+  googleCalendarId   String   @default("primary")
+
+  // Conversational onboarding state
+  onboardingStep     String   @default("awaiting_days") // "awaiting_days" | "awaiting_frequency" | "awaiting_time_pref" | "awaiting_confirm" | "complete"
+  preferredDays      String?  // comma-separated: "mon,wed,fri,sun"
+  daysPerWeek        Int?
+  preferredTime      String?  // "morning" | "afternoon" | "evening"
+
+  workouts           ScheduledWorkout[]
+}
+
+model ScheduledWorkout {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutBlockName String
+  startTime        DateTime
+  endTime          DateTime
+  calendarEventId  String?
+  status           String   // "scheduled" | "completed" | "cancelled" | "rescheduled" | "skipped"
+  reminderSent     Boolean  @default(false)
+
+  @@index([userId])
+  @@index([userId, startTime])
+}
