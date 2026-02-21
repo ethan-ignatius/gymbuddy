@@ -8,11 +8,11 @@ const goalEnum = z.enum([
 
 export const signupBodySchema = z.object({
   email: z.string().email(),
-  phoneNumber: z.string().regex(/^\+[1-9]\d{1,14}$/, "E.164 format required"),
-  heightCm: z.number().int().min(100).max(250),
-  weightKg: z.number().min(30).max(300),
+  phoneNumber: z.string().min(10, "Phone number required"),
+  heightCm: z.coerce.number().int().min(50).max(300),
+  weightKg: z.coerce.number().min(20).max(500),
   goal: goalEnum,
-  gymTravelMinutes: z.number().int().min(0).max(120),
+  gymTravelMinutes: z.coerce.number().int().min(0).max(120),
 });
 
 export type SignupPayload = z.infer<typeof signupBodySchema>;
