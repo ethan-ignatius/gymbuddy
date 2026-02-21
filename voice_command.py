@@ -18,6 +18,11 @@ import speech_recognition as sr
 import whisper
 
 _KEYWORD_RULES: list[tuple[str, re.Pattern]] = [
+    ("start_workout", re.compile(
+        r"(start\s*work\s*out|begin\s*work\s*out|let.s\s*work\s*out|"
+        r"start\s*routine|begin\s*routine|let.s\s*go)",
+        re.IGNORECASE,
+    )),
     ("start_bicep_curl", re.compile(
         r"(bicep|curls?|bicep\s*curls?|start.*curl|do.*curl|begin.*curl|let.s.*curl)",
         re.IGNORECASE,
@@ -27,18 +32,29 @@ _KEYWORD_RULES: list[tuple[str, re.Pattern]] = [
         r"start.*raise|do.*raise|begin.*raise|let.s.*raise)",
         re.IGNORECASE,
     )),
+    ("skip", re.compile(
+        r"(skip|later|next|pass|delay|not\s*now|move\s*on)",
+        re.IGNORECASE,
+    )),
+    ("ready", re.compile(
+        r"^(start|ready|go|begin|i.m\s*ready|let.s\s*do\s*it)$",
+        re.IGNORECASE,
+    )),
     ("stop", re.compile(
         r"^(stop|done|finish|end|quit|that.s\s*(it|enough)|i.m\s*done)",
         re.IGNORECASE,
     )),
 ]
 
-INTENTS = {"start_bicep_curl", "start_lateral_raise", "stop", "unknown"}
+INTENTS = {
+    "start_workout", "start_bicep_curl", "start_lateral_raise",
+    "ready", "skip", "stop", "unknown",
+}
 
 
 def _classify_text(text: str) -> str:
     """Classify transcript into an intent using keyword rules."""
-    text = text.strip()
+    text = re.sub(r"[^\w\s']", "", text).strip()
     if not text:
         return "unknown"
     for intent, pattern in _KEYWORD_RULES:
