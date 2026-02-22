@@ -183,6 +183,37 @@ const INITIAL_MESSAGES: ChatMessage[] = [
   { role: "ai", text: "Hey! I'm watching your form and tracking your progress. Ask me about weights, substitutions, or anything.", time: "now" },
 ];
 
+// ─── Muscle Group Map ─────────────────────────────────────────────────────────
+
+const MUSCLE_MAP: Record<string, string> = {
+  "Barbell Bench Press": "Chest",
+  "Bench Press": "Chest",
+  "Incline Bench": "Upper Chest",
+  "Close-Grip Bench": "Triceps",
+  "Incline DB Press": "Upper Chest",
+  "Pendlay Row": "Back",
+  "Barbell Row": "Back",
+  "Lat Pulldown": "Lats",
+  "Cable Row": "Back",
+  "Overhead Press": "Shoulders",
+  "OHP": "Shoulders",
+  "Lateral Raise": "Delts",
+  "Face Pull": "Rear Delts",
+  "Weighted Pull-up": "Lats",
+  "Barbell Curl": "Biceps",
+  "Back Squat": "Quads",
+  "Front Squat": "Quads",
+  "Deadlift": "Posterior",
+  "RDL": "Hamstrings",
+  "Barbell Lunge": "Glutes",
+  "Leg Press": "Quads",
+  "Leg Curl": "Hamstrings",
+  "Calf Raise": "Calves",
+  "Weighted Dip": "Triceps",
+  "Triceps Pushdown": "Triceps",
+  "Pec Fly": "Chest",
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function calc1RM(weight: number, reps: number): number {
@@ -244,7 +275,7 @@ function getAIResponse(msg: string): string {
 
 function Card({ children, style, label }: { children: React.ReactNode; style?: React.CSSProperties; label?: string }) {
   return (
-    <div style={{ ...S.card, ...style }}>
+    <div className="dashboard-card" style={{ ...S.card, ...style }}>
       {label && <div style={S.cardLabel}>{label}</div>}
       {children}
     </div>
@@ -336,10 +367,14 @@ function WorkoutPanel({ workout }: { workout: WorkoutBlock }) {
         {workout.exercises.map((ex, exIdx) => {
           const sets = completedSets[String(exIdx)] ?? Array(ex.sets).fill(false);
           const allDone = sets.every(Boolean);
+          const muscle = MUSCLE_MAP[ex.name] || "General";
           return (
-            <div key={exIdx} style={{ ...S.exRow, ...(allDone ? S.exRowDone : {}) }}>
+            <div key={exIdx} className="ex-row" style={{ ...S.exRow, ...(allDone ? S.exRowDone : {}) }}>
               <div style={S.exInfo}>
-                <div style={S.exName}>{ex.name}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <span style={S.exName}>{ex.name}</span>
+                  <span style={S.muscleTag}>{muscle}</span>
+                </div>
                 <div style={S.exMeta}>
                   {ex.sets}×{ex.reps}
                   {ex.weight && <span style={{ color: "#f0ede6" }}> · {ex.weight} lbs</span>}
@@ -447,7 +482,7 @@ function PRTrackerPanel() {
       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", overflow: "auto", flex: 1, minHeight: 0 }}>
         {RECENT_PRS.map((pr, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.35rem", background: "rgba(232,196,104,0.06)", borderRadius: "6px", padding: "0.25rem 0.4rem" }}>
-            <span style={{ fontSize: "0.7rem" }}>🏆</span>
+            <span style={{ fontSize: "1rem", color: "#e8c468", opacity: 0.6 }}>★</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: "0.7rem", fontWeight: 600 }}>{pr.exercise}</div>
               <div style={{ fontSize: "0.55rem", color: "#555" }}>{pr.date}</div>
@@ -481,7 +516,7 @@ function UpcomingPanel({ plan }: { plan: PlanType }) {
               style={{ ...S.upcomingItem, cursor: "pointer" }}
               onClick={() => setExpanded(expanded === i ? null : i)}
             >
-              <span style={{ fontSize: "0.7rem" }}>📅</span>
+              <span style={{ fontSize: "0.8rem", color: "#e8c468", opacity: 0.6 }}>◆</span>
               <div style={S.upcomingDay}>{u.day}</div>
               <div style={S.upcomingName}>{u.name}</div>
               <div style={S.upcomingTime}>{u.time}</div>
@@ -851,7 +886,7 @@ export default function DashboardPage() {
         {/* Left: bento grid — 3 cols × 4 rows, fills viewport */}
         <div style={S.grid}>
           <div style={{ gridColumn: '1 / 3', gridRow: '1 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><WorkoutPanel workout={workout} /></div>
-          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', display: 'flex', overflow: 'hidden', minHeight: 0 }}><HistoryPanel /></div>
+          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', display: 'flex', minHeight: 0 }}><HistoryPanel /></div>
           <div style={{ gridColumn: '3 / 4', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><UpcomingPanel plan={plan} /></div>
           <div style={{ gridColumn: '1 / 2', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}><AttendancePanel /></div>
           <div style={{ gridColumn: '2 / 3', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}>
@@ -882,6 +917,20 @@ const globalCss = `
   @keyframes dotBlink { 0%,80%,100%{opacity:.3} 40%{opacity:1} }
   .dots span { display:inline-block; width:7px; height:7px; border-radius:50%; background:#888; animation: dotBlink 1.4s infinite; margin: 0 2px; }
   .dots span:nth-child(2){animation-delay:.2s} .dots span:nth-child(3){animation-delay:.4s}
+  .dashboard-card {
+    transition: border-color 0.55s ease;
+  }
+  .dashboard-card:hover {
+    border-color: rgba(232,196,104,0.35) !important;
+  }
+  .ex-row {
+    transition: border-color 0.5s ease, background 0.5s ease;
+    cursor: default;
+  }
+  .ex-row:hover {
+    border-color: rgba(232,196,104,0.2) !important;
+    background: rgba(232,196,104,0.04) !important;
+  }
 `;
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -986,7 +1035,7 @@ const S: Record<string, React.CSSProperties> = {
   // ── Card (shared) ──
   card: {
     background: "rgba(255,255,255,0.025)",
-    border: "1px solid rgba(255,255,255,0.07)",
+    border: "1px solid rgba(232,196,104,0.12)",
     borderRadius: "12px",
     padding: "0.6rem 0.7rem",
     animation: "fadeUp 0.35s ease both",
@@ -1055,7 +1104,7 @@ const S: Record<string, React.CSSProperties> = {
     fontFamily: "'DM Sans', sans-serif",
   },
 
-  exerciseList: { display: "flex", flexDirection: "column", gap: "0.3rem", flex: 1, overflow: "auto", minHeight: 0 },
+  exerciseList: { display: "flex", flexDirection: "column", gap: "0.65rem", flex: 1, overflow: "auto", minHeight: 0 },
   exRow: {
     display: "flex",
     alignItems: "center",
@@ -1063,7 +1112,7 @@ const S: Record<string, React.CSSProperties> = {
     background: "rgba(255,255,255,0.02)",
     border: "1px solid rgba(255,255,255,0.05)",
     borderRadius: "8px",
-    padding: "0.4rem 0.6rem",
+    padding: "0.85rem 0.85rem",
     flexWrap: "wrap",
     transition: "border-color 0.2s, background 0.2s",
   },
@@ -1072,8 +1121,33 @@ const S: Record<string, React.CSSProperties> = {
     background: "rgba(48,209,88,0.03)",
   },
   exInfo: { flex: 1, minWidth: "100px" },
-  exName: { fontWeight: 600, fontSize: "0.78rem" },
-  exMeta: { fontSize: "0.65rem", color: "#888" },
+  exName: { fontWeight: 600, fontSize: "0.85rem" },
+  exMeta: { fontSize: "0.72rem", color: "#888" },
+  muscleTag: {
+    fontSize: "0.5rem",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "#e8c468",
+    background: "rgba(232,196,104,0.1)",
+    border: "1px solid rgba(232,196,104,0.2)",
+    borderRadius: "8px",
+    padding: "0.1rem 0.35rem",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
+  miniProgressTrack: {
+    height: "3px",
+    background: "rgba(255,255,255,0.06)",
+    borderRadius: "2px",
+    marginTop: "0.25rem",
+    overflow: "hidden",
+  },
+  miniProgressFill: {
+    height: "100%",
+    background: "linear-gradient(90deg, rgba(232,196,104,0.5), rgba(232,196,104,0.8))",
+    borderRadius: "2px",
+    transition: "width 0.3s ease",
+  },
   setBubbles: { display: "flex", gap: "0.3rem" },
   setBubble: {
     width: "22px",
