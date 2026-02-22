@@ -74,6 +74,27 @@ def _classify_text(text: str) -> str:
     return "unknown"
 
 
+def _sounds_like_addressing_gymbuddy(transcript: str) -> bool:
+    """True if transcript sounds like user is trying to say 'gym buddy' or address the app."""
+    if not transcript:
+        return False
+    t = transcript.lower().replace(",", " ").replace(".", " ")
+    t = re.sub(r"\s+", " ", t).strip()
+    # "gym buddy", "gym bud", "gymbuddy"
+    if re.search(r"gym\s*bud(dy)?|gymbuddy", t):
+        return True
+    # "joe jim", "jim joe" – common mishearing of "gym buddy"
+    if re.search(r"joe\s*jim|jim\s*joe", t):
+        return True
+    # "jim buddy", "jim bud"
+    if re.search(r"jim\s*bud(dy)?", t):
+        return True
+    # "hey gym", "okay gym" + "buddy" elsewhere
+    if "buddy" in t and re.search(r"(gym|jim|joe)", t):
+        return True
+    return False
+
+
 def _extract_weight_from_transcript(transcript: str) -> float | None:
     """Extract weight in lbs from phrases like 'start 20 pounds', '20 lbs', '15 kilos'."""
     if not transcript:
@@ -188,7 +209,7 @@ class VoiceCommandListener:
         with self._mic as source:
             self._recognizer.adjust_for_ambient_noise(source, duration=0.5)
         self._stop_listening = self._recognizer.listen_in_background(
-            self._mic, self._audio_callback, phrase_time_limit=3,
+            self._mic, self._audio_callback, phrase_time_limit=1.2,
         )
         self._is_listening = True
         print("Voice commands active. Speak to control your workout.")
@@ -262,7 +283,15 @@ class VoiceCommandListener:
                        if self._get_context_fn else WorkoutContext())
                 llm_resp = self._llm.process(transcript, ctx)
                 if llm_resp.intent == "ignore":
-                    print("[voice] Ignored (not directed at GymBuddy)")
+                    if _sounds_like_addressing_gymbuddy(transcript):
+                        print("[voice] Addressed Gym Buddy – responding")
+                        self._command_queue.put(VoiceResult(
+                            intent=None,
+                            transcript=transcript,
+                            response="I'm here! What would you like to do?",
+                        ))
+                    else:
+                        print("[voice] Ignored (not directed at GymBuddy)")
                     return
                 weight = llm_resp.weight_lbs or _extract_weight_from_transcript(transcript)
                 vr = VoiceResult(
