@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import StaggeredMenu, { StaggeredMenuHandle } from "../components/StaggeredMenu";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -852,6 +853,7 @@ export default function DashboardPage() {
   const [plan, setPlan] = useState<PlanType>("strength");
   const [customExercises, setCustomExercises] = useState<Exercise[]>([]);
   const workout = getTodayWorkout(plan, customExercises);
+  const menuRef = useRef<StaggeredMenuHandle>(null);
 
   return (
     <div style={S.root}>
@@ -879,6 +881,13 @@ export default function DashboardPage() {
           ))}
         </div>
         <div style={S.streakBadge}>🔥 4</div>
+        <button
+          onClick={() => menuRef.current?.toggle()}
+          style={S.menuToggle}
+          aria-label="Toggle menu"
+        >
+          Menu <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>+</span>
+        </button>
       </header>
 
       {/* Main layout: bento grid + chat */}
@@ -900,6 +909,28 @@ export default function DashboardPage() {
       </div>
 
       <style>{globalCss}</style>
+
+      {/* Staggered navigation menu */}
+      <StaggeredMenu
+        ref={menuRef}
+        position="right"
+        colors={["#1a2618", "#e8c468", "#252422"]}
+        accentColor="#e8c468"
+        menuButtonColor="#e8c468"
+        openMenuButtonColor="#e8c468"
+        changeMenuColorOnOpen={false}
+        isFixed={true}
+        closeOnClickAway={true}
+        hideHeader={true}
+        displaySocials={false}
+        displayItemNumbering={true}
+        logoUrl=""
+        items={[
+          { label: "Profile", link: "#profile", ariaLabel: "Go to profile" },
+          { label: "Calendar", link: "#calendar", ariaLabel: "View calendar" },
+          { label: "Analytics", link: "/analytics", ariaLabel: "View analytics" },
+        ]}
+      />
     </div>
   );
 }
@@ -985,6 +1016,22 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: "0.78rem",
     color: "#e8c468",
     fontWeight: 600,
+  },
+  menuToggle: {
+    background: "none",
+    border: "1px solid rgba(232,196,104,0.2)",
+    borderRadius: "6px",
+    padding: "0.3rem 0.7rem",
+    color: "#e8c468",
+    fontSize: "0.72rem",
+    fontWeight: 500,
+    cursor: "pointer",
+    fontFamily: "'DM Sans', sans-serif",
+    letterSpacing: "0.04em",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.3rem",
+    transition: "border-color 0.3s ease, background 0.3s ease",
   },
   planPills: {
     display: "flex",
