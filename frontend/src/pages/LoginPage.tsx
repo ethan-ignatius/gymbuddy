@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Plasma from "../components/Plasma";
-import SpotlightCard from "../components/SpotlightCard";
+import LiquidEther from "../components/LiquidEther";
+import GlassSurface from "../components/GlassSurface";
 
 export default function LoginPage() {
     const navigate = useNavigate();
@@ -37,13 +37,15 @@ export default function LoginPage() {
     return (
         <div style={s.root}>
             <div style={s.plasma}>
-                <Plasma
-                    color="#e8c468"
-                    speed={1.0}
-                    direction="forward"
-                    scale={1.5}
-                    opacity={0.6}
-                    mouseInteractive={false}
+                <LiquidEther
+                    colors={["#e8c468", "#d4600a", "#f5a623", "#b05c2b", "#ffe8a0"]}
+                    mouseForce={28}
+                    cursorSize={120}
+                    autoDemo={true}
+                    autoSpeed={0.45}
+                    autoIntensity={2.4}
+                    resolution={0.5}
+                    BFECC={true}
                 />
             </div>
             <div style={s.overlay} />
@@ -52,7 +54,17 @@ export default function LoginPage() {
                 <div style={s.wrapper}>
                     <a href="/" style={s.back}>{"<- Back"}</a>
 
-                    <SpotlightCard className="login-card" spotlightColor="rgba(232,196,104,0.1)">
+                    <GlassSurface
+                        width="100%"
+                        height="auto"
+                        borderRadius={20}
+                        brightness={50}
+                        opacity={0.93}
+                        blur={11}
+                        backgroundOpacity={0}
+                        saturation={1}
+                        className="login-card"
+                    >
                         <div style={s.header}>
                             <span style={s.logo}>GB</span>
                             <h1 style={s.title}>Welcome back</h1>
@@ -91,7 +103,7 @@ export default function LoginPage() {
                             Don't have an account?{" "}
                             <a href="/signup" style={s.switchLink}>Sign up</a>
                         </p>
-                    </SpotlightCard>
+                    </GlassSurface>
                 </div>
             </div>
 
@@ -103,13 +115,13 @@ export default function LoginPage() {
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap');
   .login-card {
-    border-color: rgba(232,196,104,0.12) !important;
-    background-color: rgba(14,14,14,0.85) !important;
-    border-radius: 1.25rem !important;
-    padding: 2.5rem !important;
-    backdrop-filter: blur(20px) !important;
     max-width: 440px;
     width: 100%;
+  }
+  .login-card .glass-surface__content {
+    padding: 2.5rem;
+    flex-direction: column;
+    align-items: stretch;
   }
   input::placeholder { color: #444; }
 `;

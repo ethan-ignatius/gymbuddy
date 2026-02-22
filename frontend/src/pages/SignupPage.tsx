@@ -1,7 +1,7 @@
 import { useState } from "react";
 import SignupForm from "../components/SignupForm";
 import SignupSuccess from "../components/SignupSuccess";
-import Plasma from "../components/Plasma";
+import LiquidEther from "../components/LiquidEther";
 
 export type SignupPayload = {
   email: string;
@@ -33,13 +33,15 @@ export default function SignupPage() {
     <div style={s.root}>
       {/* shared plasma background */}
       <div style={s.plasma}>
-        <Plasma
-          color="#e8c468"
-          speed={1.0}
-          direction="forward"
-          scale={1.5}
-          opacity={0.6}
-          mouseInteractive={false}
+        <LiquidEther
+          colors={["#e8c468", "#d4600a", "#f5a623", "#b05c2b", "#ffe8a0"]}
+          mouseForce={28}
+          cursorSize={120}
+          autoDemo={true}
+          autoSpeed={0.45}
+          autoIntensity={2.4}
+          resolution={0.5}
+          BFECC={true}
         />
       </div>
       <div style={s.overlay} />

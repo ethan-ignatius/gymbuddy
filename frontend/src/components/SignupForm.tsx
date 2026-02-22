@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { CSSProperties, FocusEvent, ReactNode, RefObject } from "react";
 import type { SignupPayload } from "../pages/SignupPage";
-import SpotlightCard from "./SpotlightCard";
+import GlassSurface from "./GlassSurface";
 
 const PROXIMITY = 120;
 
@@ -212,7 +212,17 @@ export default function SignupForm({ onSubmit }: Props) {
         {"<- Back"}
       </a>
 
-      <SpotlightCard className="signup-card" spotlightColor="rgba(232,196,104,0.1)">
+      <GlassSurface
+        width="100%"
+        height="auto"
+        borderRadius={20}
+        brightness={50}
+        opacity={0.93}
+        blur={11}
+        backgroundOpacity={0}
+        saturation={1}
+        className="signup-card"
+      >
         <div style={s.header}>
           <span style={s.logo}>GB</span>
           <h1 style={s.title}>Create your plan</h1>
@@ -312,7 +322,7 @@ export default function SignupForm({ onSubmit }: Props) {
             {loading ? "Building your plan..." : "Get my plan ->"}
           </button>
         </form>
-      </SpotlightCard>
+      </GlassSurface>
       <style>{css}</style>
     </div>
   );
@@ -327,13 +337,13 @@ function normalizePhone(raw: string): string {
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap');
   .signup-card {
-    border-color: rgba(232,196,104,0.12) !important;
-    background-color: rgba(14,14,14,0.85) !important;
-    border-radius: 1.25rem !important;
-    padding: 2.5rem !important;
-    backdrop-filter: blur(20px) !important;
     max-width: 500px;
     width: 100%;
+  }
+  .signup-card .glass-surface__content {
+    padding: 2.5rem;
+    flex-direction: column;
+    align-items: stretch;
   }
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button { display: none; }

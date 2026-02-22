@@ -8,7 +8,7 @@ export default function LandingPage() {
     <div style={styles.root}>
       <div style={styles.etherWrap}>
         <LiquidEther
-          colors={["#b8960c", "#e8c468", "#fff3b0", "#c9a227", "#f5d98b"]}
+          colors={["#e8c468", "#d4600a", "#f5a623", "#b05c2b", "#ffe8a0"]}
           mouseForce={28}
           cursorSize={120}
           autoDemo={true}

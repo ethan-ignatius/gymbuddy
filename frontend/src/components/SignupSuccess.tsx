@@ -1,11 +1,21 @@
-import SpotlightCard from "./SpotlightCard";
+import GlassSurface from "./GlassSurface";
 
 type Props = { calendarAuthUrl: string };
 
 export default function SignupSuccess({ calendarAuthUrl }: Props) {
   return (
     <div style={s.wrapper}>
-      <SpotlightCard className="success-card" spotlightColor="rgba(232,196,104,0.1)">
+      <GlassSurface
+        width="100%"
+        height="auto"
+        borderRadius={20}
+        brightness={50}
+        opacity={0.93}
+        blur={11}
+        backgroundOpacity={0}
+        saturation={1}
+        className="success-card"
+      >
         <div style={s.iconWrap}>
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#e8c468" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
@@ -25,14 +35,14 @@ export default function SignupSuccess({ calendarAuthUrl }: Props) {
           onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.boxShadow = "0 4px 12px rgba(66,133,244,0.2)"; }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-            <path fill="#4285F4" d="M18.316 5.684H24v12.632h-5.684z"/>
-            <path fill="#34A853" d="M5.684 18.316v5.684H18.316l2.842-5.684z"/>
-            <path fill="#EA4335" d="M0 18.316l5.684 5.684V18.316z"/>
-            <path fill="#FBBC04" d="M24 5.684L18.316 0H5.684L0 5.684z"/>
-            <path fill="#1A73E8" d="M0 5.684v12.632h5.684V5.684z"/>
-            <path fill="#185FC2" d="M5.684 0v5.684H18.316L24 0z"/>
-            <rect x="6.5" y="9.5" width="11" height="7" fill="white"/>
-            <path fill="#1A73E8" d="M12 10.8c.9 0 1.5.5 1.7 1.1l-.9.5c-.1-.4-.4-.6-.8-.6-.7 0-1.2.6-1.2 1.4s.5 1.4 1.2 1.4c.5 0 .9-.3 1-.7h-1v-.8h1.9c0 .1.1.3.1.5 0 1.1-.7 1.9-2 1.9-1.2 0-2.1-.9-2.1-2.3s.9-2.4 2.1-2.4z"/>
+            <path fill="#4285F4" d="M18.316 5.684H24v12.632h-5.684z" />
+            <path fill="#34A853" d="M5.684 18.316v5.684H18.316l2.842-5.684z" />
+            <path fill="#EA4335" d="M0 18.316l5.684 5.684V18.316z" />
+            <path fill="#FBBC04" d="M24 5.684L18.316 0H5.684L0 5.684z" />
+            <path fill="#1A73E8" d="M0 5.684v12.632h5.684V5.684z" />
+            <path fill="#185FC2" d="M5.684 0v5.684H18.316L24 0z" />
+            <rect x="6.5" y="9.5" width="11" height="7" fill="white" />
+            <path fill="#1A73E8" d="M12 10.8c.9 0 1.5.5 1.7 1.1l-.9.5c-.1-.4-.4-.6-.8-.6-.7 0-1.2.6-1.2 1.4s.5 1.4 1.2 1.4c.5 0 .9-.3 1-.7h-1v-.8h1.9c0 .1.1.3.1.5 0 1.1-.7 1.9-2 1.9-1.2 0-2.1-.9-2.1-2.3s.9-2.4 2.1-2.4z" />
           </svg>
           Connect Google Calendar
         </a>
@@ -44,7 +54,7 @@ export default function SignupSuccess({ calendarAuthUrl }: Props) {
             days, times, and intensity — all over SMS.
           </p>
         </div>
-      </SpotlightCard>
+      </GlassSurface>
 
       <style>{css}</style>
     </div>
@@ -54,14 +64,14 @@ export default function SignupSuccess({ calendarAuthUrl }: Props) {
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap');
   .success-card {
-    border-color: rgba(232,196,104,0.12) !important;
-    background-color: rgba(14,14,14,0.85) !important;
-    border-radius: 1.25rem !important;
-    padding: 2.5rem !important;
-    backdrop-filter: blur(20px) !important;
     max-width: 440px;
     width: 100%;
     text-align: center;
+  }
+  .success-card .glass-surface__content {
+    padding: 2.5rem;
+    flex-direction: column;
+    align-items: stretch;
   }
 `;
 
