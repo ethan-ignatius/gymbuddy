@@ -3,6 +3,21 @@ __pycache__/
 *.pyc
 *.task
 .DS_Store
+node_modules/
+dist/
+
+# Environment secrets - never commit
 .env
+.env.local
+.env.production
+
+# Prisma
+backend/prisma/migrations/**/migration_lock.toml
+
+# Frontend build
+frontend/node_modules/
+frontend/dist/
+
+# Local RAG cache/artifacts
 health_pdfs/.rag_cache.npz
 health_pdfs/.rag_manifest.json

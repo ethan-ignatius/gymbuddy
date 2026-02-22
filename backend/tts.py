@@ -16,10 +16,12 @@ from elevenlabs.play import play
 
 load_dotenv()
 
-_VOICE_ID = "dtSEyYGNJqjrtBArPCVZ"
-_MODEL_ID = "eleven_turbo_v2_5"
-_OUTPUT_FMT = "mp3_22050_32"
-_PAUSE_AFTER = 0.5
+# If ELEVENLABS_VOICE_ID is unset/empty, omit voice_id to use provider default.
+_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID") or None
+# If ELEVENLABS_VOICE_MODEL is unset/empty, omit model_id to use provider default.
+_MODEL_ID = os.getenv("ELEVENLABS_VOICE_MODEL") or "eleven_turbo_v2_5"
+_OUTPUT_FMT = os.getenv("ELEVENLABS_OUTPUT_FORMAT") or "mp3_22050_32"
+_PAUSE_AFTER = float(os.getenv("ELEVENLABS_PAUSE_AFTER") or "0.5")
 
 
 class VoiceCoach:
@@ -68,12 +70,12 @@ class VoiceCoach:
 
             self._busy = True
             try:
-                audio = self._client.text_to_speech.convert(
-                    text=text,
-                    voice_id=_VOICE_ID,
-                    model_id=_MODEL_ID,
-                    output_format=_OUTPUT_FMT,
-                )
+                kwargs = {"text": text, "output_format": _OUTPUT_FMT}
+                if _VOICE_ID:
+                    kwargs["voice_id"] = _VOICE_ID
+                if _MODEL_ID:
+                    kwargs["model_id"] = _MODEL_ID
+                audio = self._client.text_to_speech.convert(**kwargs)
                 play(audio)
                 time.sleep(_PAUSE_AFTER)
             except Exception as exc:
