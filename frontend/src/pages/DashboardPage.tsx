@@ -32,6 +32,9 @@ interface ChatMessage {
   role: "user" | "ai";
   text: string;
   time: string;
+  citations?: Array<{ source: string; page: number | null }>;
+  ragSource?: string;
+  usedRag?: boolean;
 }
 
 interface LiveWorkoutProgress {
@@ -966,7 +969,17 @@ function ChatPanel() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? data.error ?? `Request failed: ${res.status}`);
       setThinking(false);
-      setMessages((prev) => [...prev, { role: "ai", text: data.reply || getAIResponse(text), time }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          text: data.reply || getAIResponse(text),
+          time,
+          citations: Array.isArray(data.ragHits) ? data.ragHits : undefined,
+          ragSource: typeof data.ragSource === "string" ? data.ragSource : undefined,
+          usedRag: Boolean(data.usedRag),
+        },
+      ]);
     } catch (err) {
       console.error("Dashboard chat failed:", err);
       setThinking(false);
@@ -997,6 +1010,20 @@ function ChatPanel() {
             {m.role === "ai" && <div style={S.msgAvatar}>GB</div>}
             <div style={{ ...S.msgBubble, ...(m.role === "user" ? S.msgBubbleUser : S.msgBubbleAI) }}>
               {m.text}
+              {m.role === "ai" && m.usedRag && m.citations && m.citations.length > 0 && (
+                <div style={S.citationWrap}>
+                  <div style={S.citationMeta}>
+                    Source: {m.ragSource === "actian-python" ? "Actian RAG" : "Fallback RAG"}
+                  </div>
+                  <div style={S.citationList}>
+                    {m.citations.slice(0, 3).map((c, idx) => (
+                      <span key={`${c.source}-${c.page}-${idx}`} style={S.citationChip}>
+                        {c.source}{c.page ? ` p.${c.page}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div style={S.msgTime}>{m.time}</div>
             </div>
           </div>
@@ -1617,6 +1644,24 @@ const S: Record<string, React.CSSProperties> = {
     borderBottomRightRadius: "4px",
   },
   msgTime: { fontSize: "0.55rem", opacity: 0.5, marginTop: "0.2rem" },
+  citationWrap: {
+    marginTop: "0.35rem",
+    paddingTop: "0.3rem",
+    borderTop: "1px solid rgba(255,255,255,0.08)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.2rem",
+  },
+  citationMeta: { fontSize: "0.52rem", color: "#888" },
+  citationList: { display: "flex", flexWrap: "wrap", gap: "0.2rem" },
+  citationChip: {
+    fontSize: "0.5rem",
+    color: "#e8c468",
+    border: "1px solid rgba(232,196,104,0.25)",
+    background: "rgba(232,196,104,0.06)",
+    borderRadius: "999px",
+    padding: "0.08rem 0.3rem",
+  },
 
   quickRow: {
     display: "flex",

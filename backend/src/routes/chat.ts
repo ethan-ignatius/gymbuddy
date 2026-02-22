@@ -20,6 +20,7 @@ type RagChunk = {
   page?: number;
   chunk?: number;
 };
+type RagHit = { source?: string; page?: number | null };
 
 let ragManifestCache: Record<string, RagChunk> | null = null;
 const execFileAsync = promisify(execFile);
@@ -93,8 +94,9 @@ function summarizeUserContextForDashboard(user: Awaited<ReturnType<typeof prisma
 
 async function retrieveRagViaPython(question: string): Promise<{
   context: string;
-  hits: Array<{ source?: string; page?: number | null }>;
+  hits: RagHit[];
   source: "actian-python" | "manifest-fallback";
+  diagnostics?: Record<string, unknown>;
 }> {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -115,6 +117,7 @@ async function retrieveRagViaPython(question: string): Promise<{
       ok?: boolean;
       context?: string;
       hits?: Array<{ source?: string; page?: number | null }>;
+      diagnostics?: Record<string, unknown>;
       error?: string;
     };
     if (!parsed.ok) {
@@ -124,6 +127,7 @@ async function retrieveRagViaPython(question: string): Promise<{
       context: parsed.context || "",
       hits: parsed.hits || [],
       source: "actian-python",
+      diagnostics: parsed.diagnostics,
     };
   } catch (err) {
     console.warn("[dashboard-rag] Python/Actian retrieval failed, using manifest fallback:", err);
@@ -132,8 +136,21 @@ async function retrieveRagViaPython(question: string): Promise<{
       context: buildRagContext(chunks),
       hits: chunks.map((c) => ({ source: c.source, page: c.page ?? null })),
       source: "manifest-fallback",
+      diagnostics: undefined,
     };
   }
+}
+
+function dedupeRagHits(hits: RagHit[]): RagHit[] {
+  const seen = new Set<string>();
+  const out: RagHit[] = [];
+  for (const h of hits) {
+    const key = `${h.source ?? "unknown"}|${h.page ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(h);
+  }
+  return out;
 }
 
 /**
@@ -230,17 +247,50 @@ chatRouter.post("/dashboard-assistant", async (req, res) => {
         ? await prisma.user.findUnique({ where: { email: String(email).trim().toLowerCase() } })
         : null;
 
-    const rag = await retrieveRagViaPython(message);
-    const ragContext = rag.context;
+    let rag = await retrieveRagViaPython(message);
+    let ragHits = dedupeRagHits(rag.hits);
+    let ragContext = rag.context;
     const userContext = summarizeUserContextForDashboard(user);
+    const diag = rag.diagnostics ?? {};
+    const diagSummary =
+      rag.source === "actian-python"
+        ? ` endpoint=${String(diag["endpoint"] ?? "n/a")} collection=${String(diag["collection"] ?? "n/a")} ` +
+          `exists=${String(diag["collection_exists"] ?? "unknown")} count=${String(diag["collection_count"] ?? "unknown")} ` +
+          `openai=${String(diag["openai_client"] ?? "unknown")} cortex=${String(diag["cortex_client"] ?? "unknown")}`
+        : "";
+
+    if (rag.source === "actian-python" && ragHits.length === 0) {
+      // Recheck with manifest fallback so the UI can still show citations while diagnosing Actian retrieval.
+      const fallbackChunks = retrieveRagChunks(message, 4);
+      if (fallbackChunks.length > 0) {
+        rag = {
+          source: "manifest-fallback",
+          hits: fallbackChunks.map((c) => ({ source: c.source, page: c.page ?? null })),
+          context: buildRagContext(fallbackChunks),
+          diagnostics: rag.diagnostics,
+        };
+        ragHits = dedupeRagHits(rag.hits);
+        ragContext = rag.context;
+        console.warn(
+          `[dashboard-rag] actian-zero-hits but manifest fallback found ${ragHits.length} hit(s).` +
+            diagSummary
+        );
+      }
+    }
+
+    console.log(
+      `[dashboard-rag] source=${rag.source} hits=${ragHits.length}${diagSummary} ` +
+      `${ragHits.map((h) => `${h.source ?? "unknown"}${h.page ? `:p${h.page}` : ""}`).join(", ")}`
+    );
 
     if (!openai) {
       return res.json({
         reply: rag.hits.length
           ? `I found matching health references from ${rag.source}, but OPENAI_API_KEY is not configured for response generation.`
           : "OpenAI is not configured yet.",
-        ragHits: rag.hits.map((c) => ({ source: c.source ?? "unknown", page: c.page ?? null })),
+        ragHits: ragHits.map((c) => ({ source: c.source ?? "unknown", page: c.page ?? null })),
         ragSource: rag.source,
+        usedRag: Boolean(ragContext.trim()),
       });
     }
 
@@ -272,8 +322,9 @@ chatRouter.post("/dashboard-assistant", async (req, res) => {
     const reply = completion.choices[0]?.message?.content?.trim() || "I couldn't generate a reply right now.";
     return res.json({
       reply,
-      ragHits: rag.hits.map((c) => ({ source: c.source ?? "unknown", page: c.page ?? null })),
+      ragHits: ragHits.map((c) => ({ source: c.source ?? "unknown", page: c.page ?? null })),
       ragSource: rag.source,
+      usedRag: Boolean(ragContext.trim()),
     });
   } catch (err) {
     console.error("Dashboard assistant error:", err);
