@@ -1,18 +1,20 @@
 # GymBuddy
 
-GymBuddy combines:
-- A **real-time pose tracker** using [MediaPipe Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
-- A **backend + frontend app** for signup, workout planning, scheduling, and SMS-based rescheduling
+GymBuddy is a full-stack fitness coaching prototype that combines:
+- **Real-time pose tracking / AR-style form guidance** (MediaPipe + Python)
+- **Conversational coaching** (OpenAI)
+- **Workout scheduling + onboarding** (Node/Express + Prisma/Supabase + Google Calendar)
+- **Voice agent / reminders** (Twilio + TTS)
 
-## App Setup (Backend + Frontend)
+## Run (Quick Start)
 
-### Backend
+### 1. Backend (Node/Express API)
 
-Requirements: Node 18+, PostgreSQL.
+Requirements:
+- `Node.js 18+`
+- PostgreSQL (or Supabase Postgres)
 
-1. Copy `backend/.env.example` to `backend/.env` and set `DATABASE_URL`.
-2. Run:
-
+Setup:
 ```bash
 cd backend
 npm install
@@ -22,11 +24,20 @@ npx prisma migrate deploy
 npm run dev
 ```
 
-Backend runs on http://localhost:3000.
+Backend runs on `http://localhost:3000`.
 
-### Frontend
+Env:
+- Copy `backend/.env.example` to `backend/.env`
+- Set at minimum:
+  - `DATABASE_URL`
+  - `OPENAI_API_KEY`
+- Optional but used by major features:
+  - `TWILIO_*`
+  - `GOOGLE_*`
+  - `ELEVENLABS_API_KEY`
+  - `BASE_URL` (public URL for Twilio/Google callbacks, e.g. ngrok)
 
-Run:
+### 2. Frontend (React/Vite)
 
 ```bash
 cd frontend
@@ -34,55 +45,110 @@ npm install
 npm run dev
 ```
 
-Frontend runs on http://localhost:5173 and proxies `/api` and `/webhooks` to the backend.
+Frontend runs on `http://localhost:5173` and proxies `/api` + `/webhooks` to the backend.
 
-## API
+### 3. Pose Tracker (Python)
 
-- `POST /api/signup` — body: `{ email, phoneNumber, heightCm, weightKg, goal, gymTravelMinutes }`. Creates user, generates plan, schedules next week, returns JSON.
-- `POST /webhooks/sms` — Twilio incoming SMS (e.g. “can’t make it” → reschedule).
-- `POST /api/schedule-next-week` — body: `{ userId }`. Re-runs scheduling for that user (for testing).
+Requirements:
+- `Python 3.9-3.12`
 
-## Pose Tracker Setup
-
-**Requires Python 3.9 – 3.12.**
-
+Setup:
 ```bash
 cd backend
+python -m venv .venv
 
-# Create a virtual environment (recommended)
-python3 -m venv .venv
-
-# Activate (macOS/Linux)
-source .venv/bin/activate
-
-# Activate (Windows PowerShell)
+# Windows PowerShell
 .venv\Scripts\Activate.ps1
 
-# Install dependencies
+# macOS/Linux
+# source .venv/bin/activate
+
 pip install -r requirements.txt
 ```
 
-The model file (`pose_landmarker_lite.task`) is downloaded automatically on first run.
-
-## Pose Tracker Usage
-
+Run:
 ```bash
 cd backend
 python pose_tracker.py
 ```
 
-- A window titled **GymBuddy - Pose Tracker** opens showing your webcam feed with skeleton overlay.
-- The HUD in the top-right corner displays FPS and key joint angles (elbows, knees, shoulders).
-- Red dots indicate low-confidence landmarks; green dots are high-confidence.
-- Press **q** to quit.
+Notes:
+- Model assets download automatically on first run.
+- Press `q` to quit the local pose tracker window (if running in windowed mode).
 
-## What's Tracked
+### 4. (Optional) Actian RAG for Health PDFs
 
-| Landmark Group | Joints |
-|---|---|
-| Upper body | Shoulders, elbows, wrists |
-| Lower body | Hips, knees, ankles |
-| Head | Nose, eyes, ears, mouth |
-| Extremities | Hands (pinky, index, thumb), feet (heel, toe) |
+Start Actian VectorAI DB (from the Actian repo directory that contains `docker-compose.yml`):
+```bash
+docker compose up -d
+```
 
-Joint angles are computed for left/right elbows, knees, and shoulders.
+Index PDFs placed in `backend/health_pdfs/`:
+```bash
+cd backend
+python scripts/index_health_pdfs.py
+```
+
+## Core Workflow
+
+1. User signs up and connects Google Calendar
+2. GymBuddy onboards via voice/text
+3. Scheduler creates conflict-aware workout slots
+4. Pose tracker guides reps in real time
+5. Dashboard shows workouts, history, attendance, and AI chat with RAG citations
+
+## What Inspired Us (Minimal)
+
+We started from a simple problem: many people want to work out consistently, but gyms feel intimidating, unsafe, and confusing - especially for beginners. Social media advice can be inconsistent or harmful, and many users do not have access to reliable coaching.
+
+At the same time, AR-style interfaces, wearable hardware, and on-device AI are becoming more practical. GymBuddy came from the idea that first-rep guidance should be accessible, immediate, and confidence-building - without requiring a trainer or gym partner.
+
+## What We Learned (Minimal)
+
+- This is not just an AI problem; it is also a **safety**, **systems**, and **trust** problem.
+- Real-time feedback only works if latency is low and responses are reliable.
+- Scheduling is constrained by fatigue, time windows, and existing calendar events.
+- Messaging / voice / auth APIs add real-world complexity that directly affects user confidence.
+
+## How We Built It (Minimal)
+
+### Stack
+- **Frontend:** React
+- **Backend:** Node.js, TypeScript, Express
+- **Database:** Prisma + PostgreSQL (Supabase)
+- **AI:** OpenAI (NLU + conversational logic)
+- **Calendar:** Google Calendar API
+- **RAG:** Actian VectorAI DB + OpenAI embeddings for health PDFs
+- **Pose Tracking / AR-style guidance:** Python + MediaPipe + webcam
+- **Notifications / voice:** Twilio + voice agent flows (with TTS)
+
+### Product Flow
+- Onboarding collects user preferences and constraints
+- AI/voice agent helps users complete setup
+- Pose tracker provides real-time form guidance and rep tracking
+- Scheduler creates safe workout times and adapts when users skip/reschedule
+
+## Challenges We Faced (Minimal)
+
+1. **Form data + thresholds**
+- Noisy pose landmarks and varied camera angles required careful tuning.
+
+2. **Reliable coaching agent**
+- SMS delivery/compliance friction pushed us toward voice onboarding for reliability and motivation.
+
+3. **Real-time responsiveness**
+- AR-style cues must be low-latency to feel correct and useful.
+
+4. **Calendar safety**
+- Scheduling had to enforce conflict checks and recovery spacing.
+
+## What's Next (Minimal)
+
+- Expand exercise coverage and form checks
+- Integrate with real wearable / AR hardware
+- Build a mobile companion for progress and plan management
+
+## Takeaway
+
+A healthy fitness habit is:
+**safety x confidence x consistency**.
