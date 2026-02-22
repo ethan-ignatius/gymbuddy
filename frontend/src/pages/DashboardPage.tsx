@@ -265,6 +265,33 @@ function goalToPlanType(goal?: string): PlanType {
   return "strength";
 }
 
+// Default weights for API exercises (workout plan doesn't include weight)
+const WEIGHT_DEFAULTS: Record<string, number> = {
+  "Bench Press": 185, "Barbell Bench Press": 225, "Incline Bench": 185, "Incline DB Press": 65,
+  "Incline Dumbbell Press": 65, "Close-Grip Bench": 165, "Overhead Press": 95, "OHP": 95,
+  "Dumbbell Shoulder Press": 55, "Barbell Row": 175, "Pendlay Row": 185, "Dumbbell Row": 50,
+  "Lat Pulldown": 130, "Cable Row": 120, "Pull-up": 0, "Pull-up / Assisted Pull-up": 0,
+  "Weighted Pull-up": 45, "Face Pull": 40, "Lateral Raise": 20, "Bicep Curl": 35,
+  "Barbell Curl": 80, "Hammer Curl": 30, "Tricep Pushdown": 55, "Triceps Pushdown": 55, "Skull Crusher": 50, "Overhead Extension": 50,
+  "Weighted Dip": 45, "Squat": 225, "Back Squat": 275, "Front Squat": 205,
+  "Deadlift": 365, "Romanian Deadlift": 185, "RDL": 185, "Leg Press": 360,
+  "Leg Curl": 90, "Leg Extension": 100, "Calf Raise": 180, "Barbell Lunge": 135,
+  "Goblet Squat": 35, "Push-up": 0, "Dumbbell Press": 65, "Lunge": 135,
+  "Hip Thrust": 135, "Bulgarian Split Squat": 95, "Box Jump": 0, "Plank": 0,
+  "Mountain Climbers": 0, "Dead Bug": 0, "Bicycle Crunch": 0,
+};
+
+function parseRepsFor1RM(reps: string): number {
+  const m = reps.match(/(\d+)/);
+  if (!m) return 8;
+  const n = parseInt(m[1]);
+  if (reps.includes("-")) {
+    const second = reps.match(/-(\d+)/);
+    return second ? Math.round((n + parseInt(second[1])) / 2) : n;
+  }
+  return n;
+}
+
 function mapApiWorkoutToBlock(
   apiWorkout: DashboardApiData["todayWorkout"] | null
 ): WorkoutBlock | null {
@@ -273,11 +300,15 @@ function mapApiWorkoutToBlock(
     name: apiWorkout.name,
     day: apiWorkout.day,
     focus: apiWorkout.focus,
-    exercises: apiWorkout.exercises.map((e) => ({
-      name: e.name,
-      sets: e.sets,
-      reps: e.reps,
-    })),
+    exercises: apiWorkout.exercises.map((e) => {
+      const weight = WEIGHT_DEFAULTS[e.name];
+      return {
+        name: e.name,
+        sets: e.sets,
+        reps: e.reps,
+        weight: weight !== undefined ? weight : undefined,
+      };
+    }),
   };
 }
 
@@ -320,27 +351,51 @@ const MUSCLE_MAP: Record<string, string> = {
   "Incline Bench": "Upper Chest",
   "Close-Grip Bench": "Triceps",
   "Incline DB Press": "Upper Chest",
+  "Incline Dumbbell Press": "Upper Chest",
   "Pendlay Row": "Back",
   "Barbell Row": "Back",
+  "Dumbbell Row": "Back",
   "Lat Pulldown": "Lats",
   "Cable Row": "Back",
+  "Pull-up": "Lats",
+  "Pull-up / Assisted Pull-up": "Lats",
   "Overhead Press": "Shoulders",
   "OHP": "Shoulders",
+  "Dumbbell Shoulder Press": "Shoulders",
+  "Dumbbell Press": "Chest",
   "Lateral Raise": "Delts",
   "Face Pull": "Rear Delts",
   "Weighted Pull-up": "Lats",
   "Barbell Curl": "Biceps",
+  "Bicep Curl": "Biceps",
+  "Hammer Curl": "Biceps",
+  "Tricep Pushdown": "Triceps",
+  "Triceps Pushdown": "Triceps",
+  "Skull Crusher": "Triceps",
   "Back Squat": "Quads",
+  "Squat": "Quads",
   "Front Squat": "Quads",
+  "Goblet Squat": "Quads",
   "Deadlift": "Posterior",
+  "Romanian Deadlift": "Hamstrings",
   "RDL": "Hamstrings",
   "Barbell Lunge": "Glutes",
+  "Lunge": "Glutes",
   "Leg Press": "Quads",
   "Leg Curl": "Hamstrings",
+  "Leg Extension": "Quads",
   "Calf Raise": "Calves",
   "Weighted Dip": "Triceps",
-  "Triceps Pushdown": "Triceps",
   "Pec Fly": "Chest",
+  "Push-up": "Chest",
+  "Hip Thrust": "Glutes",
+  "Bulgarian Split Squat": "Quads",
+  "Box Jump": "Explosive",
+  "Plank": "Core",
+  "Mountain Climbers": "Core",
+  "Dead Bug": "Core",
+  "Bicycle Crunch": "Core",
+  "Overhead Extension": "Triceps",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -543,8 +598,10 @@ function WorkoutPanel({
                 </div>
                 <div style={S.exMeta}>
                   {ex.sets}×{ex.reps}
-                  {ex.weight && <span style={{ color: "#f0ede6" }}> · {ex.weight} lbs</span>}
-                  {ex.weight && <span style={{ color: "#555" }}> · 1RM ≈ {calc1RM(ex.weight, parseInt(ex.reps))} lbs</span>}
+                  {ex.weight !== undefined && ex.weight > 0 && <span style={{ color: "#f0ede6" }}> · {ex.weight} lbs</span>}
+                  {ex.weight !== undefined && ex.weight > 0 && !ex.reps.match(/s\b|each/) && (
+                    <span style={{ color: "#555" }}> · 1RM ≈ {calc1RM(ex.weight, parseRepsFor1RM(ex.reps))} lbs</span>
+                  )}
                 </div>
               </div>
               {ex.formScore && <ScoreRing score={ex.formScore} size={36} />}
