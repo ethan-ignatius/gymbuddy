@@ -136,8 +136,8 @@ function hex2rgb(hex) {
 }
 
 export default function LiquidEther({
-    colorA = '#0d0a1a',   // deep violet-black base
-    colorB = '#3a1a6e',   // rich purple mid
+    colorA = '#0f1a12',   // deep sage-black base
+    colorB = '#4a6b50',   // sage green mid
     colorC = '#e8c468',   // gold highlight (matches GymBuddy brand)
     speed = 0.35,
     scale = 1.4,
