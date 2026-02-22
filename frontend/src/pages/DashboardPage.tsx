@@ -209,9 +209,6 @@ const HISTORY: HistoryEntry[] = [
   },
 ];
 
-
-const CONSISTENCY = [1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0];
-
 // Map history dates to a calendar lookup
 const HISTORY_BY_DATE: Record<string, HistoryEntry> = {};
 HISTORY.forEach((h) => { HISTORY_BY_DATE[h.date] = h; });
@@ -946,17 +943,35 @@ function ChatPanel() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, thinking]);
 
-  const send = () => {
+  const send = async () => {
     const text = input.trim();
     if (!text) return;
     const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     setMessages((prev) => [...prev, { role: "user", text, time }]);
     setInput("");
     setThinking(true);
-    setTimeout(() => {
+
+    try {
+      const saved = localStorage.getItem("gymbuddyUser");
+      const user = saved ? JSON.parse(saved) as { id?: string; email?: string } : null;
+      const res = await fetch("/api/chat/dashboard-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          userId: user?.id,
+          email: user?.email,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? data.error ?? `Request failed: ${res.status}`);
+      setThinking(false);
+      setMessages((prev) => [...prev, { role: "ai", text: data.reply || getAIResponse(text), time }]);
+    } catch (err) {
+      console.error("Dashboard chat failed:", err);
       setThinking(false);
       setMessages((prev) => [...prev, { role: "ai", text: getAIResponse(text), time }]);
-    }, 900 + Math.random() * 600);
+    }
   };
 
   const QUICK = ["What weight?", "My knee hurts", "How's my form?", "Rest time?"];
