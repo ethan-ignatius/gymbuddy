@@ -1,4 +1,5 @@
 import "dotenv/config";
+import ngrok from "ngrok";
 import express from "express";
 import { signupRouter } from "./routes/signup.js";
 import { loginRouter } from "./routes/login.js";
@@ -28,9 +29,24 @@ app.get("/health", (_req, res) => {
 });
 
 const PORT = process.env.PORT ?? 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`GymBuddy server listening on http://localhost:${PORT}`);
-  setBaseUrl(process.env.BASE_URL ?? `http://localhost:${PORT}`);
+
+  const base = process.env.BASE_URL;
+  if (base) {
+    setBaseUrl(base);
+  } else if (process.env.USE_NGROK !== "false") {
+    try {
+      const url = await ngrok.connect({ addr: PORT });
+      setBaseUrl(url);
+      console.log(`[ngrok] Tunnel ready — Twilio webhooks: ${url}`);
+    } catch (err) {
+      console.warn("[ngrok] Failed to start tunnel. Set BASE_URL in .env or run ngrok manually.");
+      setBaseUrl(`http://localhost:${PORT}`);
+    }
+  } else {
+    setBaseUrl(`http://localhost:${PORT}`);
+  }
 
   startInboundSmsListener();
 
