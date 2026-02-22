@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { Link } from "react-router-dom";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1159,6 +1160,9 @@ export default function DashboardPage() {
           <div style={S.headerUser}>{headerName}</div>
           <div style={S.headerSub}>{headerSub}</div>
         </div>
+        <Link to="/pose-tracker" style={S.poseTrackerBtn}>
+          Pose Tracker
+        </Link>
         <div style={S.planPills}>
           {(["strength", "hypertrophy", "custom"] as PlanType[]).map((p) => (
             <button
@@ -1250,6 +1254,18 @@ const S: Record<string, React.CSSProperties> = {
     color: "#e8c468",
   },
   headerCenter: { flex: 1 },
+  poseTrackerBtn: {
+    background: "rgba(232,196,104,0.1)",
+    border: "1px solid rgba(232,196,104,0.3)",
+    color: "#e8c468",
+    borderRadius: "8px",
+    padding: "0.35rem 0.7rem",
+    fontSize: "0.75rem",
+    fontWeight: 600,
+    textDecoration: "none",
+    transition: "all 0.15s",
+    whiteSpace: "nowrap",
+  },
   headerUser: { fontWeight: 600, fontSize: "0.82rem" },
   headerSub: { fontSize: "0.65rem", color: "#6b6760" },
   streakBadge: {

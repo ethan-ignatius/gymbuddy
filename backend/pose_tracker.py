@@ -694,10 +694,12 @@ def _start_exercise(
     return ex_state, trackers, session
 
 
-def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
+def main(workout_csv: str = DEFAULT_WORKOUT, stream: bool = False) -> None:
     from tts import VoiceCoach
     from voice_command import VoiceCommandListener
 
+    if stream:
+        _start_stream_server()
     voice = VoiceCoach()
     brain = LLMBrain()
     db = SupabaseStore()
@@ -1035,9 +1037,13 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
             voice_mode=mode_label,
         )
         draw_hud(frame, fps, angles)
-        cv2.imshow("GymBuddy - Pose Tracker", frame)
+        if stream:
+            with _frame_lock:
+                _stream_frame[0] = frame.copy()
+        else:
+            cv2.imshow("GymBuddy - Pose Tracker", frame)
 
-        key = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(1) & 0xFF if not stream else -1
         if key == ord("q"):
             break
         elif key == ord("m"):
@@ -1053,6 +1059,59 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
     cv2.destroyAllWindows()
 
 
+# ---------------------------------------------------------------------------
+# MJPEG stream server (for --stream web dashboard)
+# ---------------------------------------------------------------------------
+
+_stream_frame: list[np.ndarray | None] = [None]
+_frame_lock = __import__("threading").Lock()
+_STREAM_PORT = 8765
+
+
+def _mjpeg_server(port: int) -> None:
+    """Serve MJPEG stream on /stream. Run in background thread."""
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    class StreamHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/stream":
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            while True:
+                with _frame_lock:
+                    f = _stream_frame[0]
+                if f is not None:
+                    _, jpg = cv2.imencode(".jpg", f)
+                    jpg_bytes = jpg.tobytes()
+                    self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ")
+                    self.wfile.write(str(len(jpg_bytes)).encode())
+                    self.wfile.write(b"\r\n\r\n")
+                    self.wfile.write(jpg_bytes)
+                    self.wfile.write(b"\r\n")
+                try:
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+                time.sleep(1 / 30)  # ~30 fps
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", port), StreamHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    print(f"[stream] MJPEG server on http://127.0.0.1:{port}/stream")
+
+
+def _start_stream_server(port: int = _STREAM_PORT) -> None:
+    _mjpeg_server(port)
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="GymBuddy Pose Tracker")
@@ -1060,5 +1119,9 @@ if __name__ == "__main__":
         "--workout", type=str, default=DEFAULT_WORKOUT,
         help=f"Path to workout CSV (default: {DEFAULT_WORKOUT})",
     )
+    parser.add_argument(
+        "--stream", action="store_true",
+        help="Serve MJPEG stream for web dashboard (no local window)",
+    )
     args = parser.parse_args()
-    main(workout_csv=args.workout)
+    main(workout_csv=args.workout, stream=args.stream)
