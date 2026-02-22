@@ -1013,7 +1013,7 @@ function ChatPanel() {
               {m.role === "ai" && m.usedRag && m.citations && m.citations.length > 0 && (
                 <div style={S.citationWrap}>
                   <div style={S.citationMeta}>
-                    Source: {m.ragSource === "actian-python" ? "Actian RAG" : "Fallback RAG"}
+                    Sources
                   </div>
                   <div style={S.citationList}>
                     {m.citations.slice(0, 3).map((c, idx) => (
