@@ -97,20 +97,20 @@ python scripts/index_health_pdfs.py
 4. Pose tracker guides reps in real time
 5. Dashboard shows workouts, history, attendance, and AI chat with RAG citations
 
-## What Inspired Us (Minimal)
+## What Inspired Us
 
 We started from a simple problem: many people want to work out consistently, but gyms feel intimidating, unsafe, and confusing - especially for beginners. Social media advice can be inconsistent or harmful, and many users do not have access to reliable coaching.
 
 At the same time, AR-style interfaces, wearable hardware, and on-device AI are becoming more practical. GymBuddy came from the idea that first-rep guidance should be accessible, immediate, and confidence-building - without requiring a trainer or gym partner.
 
-## What We Learned (Minimal)
+## What We Learned
 
 - This is not just an AI problem; it is also a **safety**, **systems**, and **trust** problem.
 - Real-time feedback only works if latency is low and responses are reliable.
 - Scheduling is constrained by fatigue, time windows, and existing calendar events.
 - Messaging / voice / auth APIs add real-world complexity that directly affects user confidence.
 
-## How We Built It (Minimal)
+## How We Built It
 
 ### Stack
 - **Frontend:** React
@@ -128,7 +128,7 @@ At the same time, AR-style interfaces, wearable hardware, and on-device AI are b
 - Pose tracker provides real-time form guidance and rep tracking
 - Scheduler creates safe workout times and adapts when users skip/reschedule
 
-## Challenges We Faced (Minimal)
+## Challenges We Faced
 
 1. **Form data + thresholds**
 - Noisy pose landmarks and varied camera angles required careful tuning.
@@ -142,7 +142,7 @@ At the same time, AR-style interfaces, wearable hardware, and on-device AI are b
 4. **Calendar safety**
 - Scheduling had to enforce conflict checks and recovery spacing.
 
-## What's Next (Minimal)
+## What's Next
 
 - Expand exercise coverage and form checks
 - Integrate with real wearable / AR hardware
