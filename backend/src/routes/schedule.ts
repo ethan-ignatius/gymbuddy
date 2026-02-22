@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { getUserById, prisma } from "../lib/db.js";
 import { generateWorkoutPlan } from "../lib/workoutPlan.js";
-import { scheduleWorkoutsForNextWeek } from "../lib/scheduler.js";
+import { scheduleWorkoutsForNextWeek, syncCalendarEventsForUser } from "../lib/scheduler.js";
+import { GoogleCalendarAuthError } from "../lib/calendar.js";
 
 export const scheduleRouter = Router();
 
@@ -186,6 +187,41 @@ scheduleRouter.get("/dashboard-data", async (req, res) => {
     console.error("Dashboard data error:", err);
     return res.status(500).json({
       error: "Failed to load dashboard data",
+      message: err instanceof Error ? err.message : "Unknown error",
+    });
+  }
+});
+
+scheduleRouter.post("/calendar/sync", async (req, res) => {
+  const userId = (req.body?.userId ?? req.query.userId) as string | undefined;
+  if (!userId) {
+    return res.status(400).json({ error: "userId required (body or query)" });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const synced = await syncCalendarEventsForUser(user);
+    return res.json({
+      success: true,
+      synced,
+      message: synced > 0 ? `Synced ${synced} workout(s) to Google Calendar` : "All workouts already synced",
+    });
+  } catch (err) {
+    if (err instanceof GoogleCalendarAuthError) {
+      const { getConsentUrl } = await import("../lib/googleAuth.js");
+      return res.status(401).json({
+        error: "Calendar auth expired",
+        message: "Google Calendar connection expired. Please reconnect.",
+        reconnectUrl: getConsentUrl(userId),
+      });
+    }
+    console.error("Calendar sync error:", err);
+    return res.status(500).json({
+      error: "Calendar sync failed",
       message: err instanceof Error ? err.message : "Unknown error",
     });
   }

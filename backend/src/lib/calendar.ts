@@ -3,6 +3,23 @@ import type { User } from "@prisma/client";
 import { getAuthenticatedClient } from "./googleAuth.js";
 import { prisma } from "./db.js";
 
+/** Thrown when Google OAuth token is invalid/expired; user must reconnect. */
+export class GoogleCalendarAuthError extends Error {
+  constructor(message = "Google Calendar connection expired. Please reconnect in settings.") {
+    super(message);
+    this.name = "GoogleCalendarAuthError";
+  }
+}
+
+function isOAuthInvalidError(err: unknown): boolean {
+  const e = err as { response?: { data?: { error?: string } }; code?: number };
+  return (
+    e?.response?.data?.error === "unauthorized_client" ||
+    e?.response?.data?.error === "invalid_grant" ||
+    e?.code === 401
+  );
+}
+
 export type CalendarEventInput = {
   start: Date;
   end: Date;
@@ -70,21 +87,27 @@ export async function createCalendarEvent(
     return null;
   }
 
-  const res = await cal.events.insert({
-    calendarId: user.googleCalendarId,
-    requestBody: {
-      summary: event.title,
-      description: event.description,
-      start: { dateTime: event.start.toISOString() },
-      end: { dateTime: event.end.toISOString() },
-      reminders: {
-        useDefault: false,
-        overrides: [{ method: "popup", minutes: 15 }],
+  try {
+    const res = await cal.events.insert({
+      calendarId: user.googleCalendarId,
+      requestBody: {
+        summary: event.title,
+        description: event.description,
+        start: { dateTime: event.start.toISOString() },
+        end: { dateTime: event.end.toISOString() },
+        reminders: {
+          useDefault: false,
+          overrides: [{ method: "popup", minutes: 15 }],
+        },
       },
-    },
-  });
-
-  return res.data.id ?? null;
+    });
+    return res.data.id ?? null;
+  } catch (err) {
+    if (isOAuthInvalidError(err)) {
+      throw new GoogleCalendarAuthError();
+    }
+    throw err;
+  }
 }
 
 export async function updateEvent(

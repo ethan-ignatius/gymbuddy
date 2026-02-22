@@ -734,11 +734,43 @@ function UpcomingPanel({
   plan,
   upcomingData,
   planBlocks,
+  userId,
+  onSyncSuccess,
 }: {
   plan: PlanType;
   upcomingData?: Array<{ day: string; date: string; name: string; time: string }>;
   planBlocks?: Array<{ name: string; exercises: Exercise[] }>;
+  userId?: string;
+  onSyncSuccess?: () => void;
 }) {
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [reconnectUrl, setReconnectUrl] = useState<string | null>(null);
+
+  const handleSync = async () => {
+    if (!userId || syncing) return;
+    setSyncing(true);
+    setSyncMessage(null);
+    setReconnectUrl(null);
+    try {
+      const res = await fetch("/api/calendar/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setReconnectUrl(data.reconnectUrl ?? null);
+        throw new Error(data.message ?? data.error ?? "Sync failed");
+      }
+      setSyncMessage(data.synced > 0 ? `Synced ${data.synced} to calendar` : "Already synced");
+      onSyncSuccess?.();
+    } catch (err) {
+      setSyncMessage(err instanceof Error ? err.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
   const [expanded, setExpanded] = useState<number | null>(null);
   const realUpcoming = upcomingData ?? [];
   const projectedUpcoming = getUpcoming(plan, planBlocks, 14);
@@ -793,9 +825,36 @@ function UpcomingPanel({
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.55rem", color: "#30d158", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.55rem", color: "#30d158", flexShrink: 0, flexWrap: "wrap" }}>
         <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#30d158", display: "inline-block" }} />
         Synced with Google Calendar
+        {userId && (
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            style={{
+              marginLeft: "0.25rem",
+              padding: "0.15rem 0.4rem",
+              fontSize: "0.5rem",
+              background: "rgba(232,196,104,0.15)",
+              color: "#e8c468",
+              border: "1px solid rgba(232,196,104,0.3)",
+              borderRadius: 4,
+              cursor: syncing ? "not-allowed" : "pointer",
+              opacity: syncing ? 0.6 : 1,
+            }}
+          >
+            {syncing ? "Syncing…" : "Sync"}
+          </button>
+        )}
+        {syncMessage && (
+          <span style={{ color: syncMessage.startsWith("Synced") ? "#30d158" : "#888", fontSize: "0.5rem", display: "flex", alignItems: "center", gap: "0.25rem", flexWrap: "wrap" }}>
+            {syncMessage}
+            {reconnectUrl && (
+              <a href={reconnectUrl} style={{ color: "#e8c468", textDecoration: "underline" }}>Reconnect</a>
+            )}
+          </span>
+        )}
       </div>
     </Card>
   );
@@ -1225,6 +1284,8 @@ export default function DashboardPage() {
   const [liveWorkoutProgress, setLiveWorkoutProgress] = useState<LiveWorkoutProgress | null>(null);
   const menuRef = useRef<StaggeredMenuHandle>(null);
 
+  const [refreshKey, setRefreshKey] = useState(0);
+
   useEffect(() => {
     const saved = localStorage.getItem("gymbuddyUser");
     const user = saved ? JSON.parse(saved) as { id?: string; email?: string; goal?: string } : null;
@@ -1252,7 +1313,7 @@ export default function DashboardPage() {
         console.error("Dashboard load failed:", err);
       })
       .finally(() => setLoadingDashboard(false));
-  }, []);
+  }, [refreshKey]);
 
   const apiWorkout = mapApiWorkoutToBlock(dashboard?.todayWorkout ?? null);
   const workout = plan === "custom"
@@ -1335,7 +1396,7 @@ export default function DashboardPage() {
         <div style={S.grid}>
           <div style={{ gridColumn: '1 / 3', gridRow: '1 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><WorkoutPanel workout={workout} onCompletionChange={setTodayWorkoutCompleted} onProgressChange={setLiveWorkoutProgress} /></div>
           <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', display: 'flex', overflow: 'hidden', minHeight: 0 }}><HistoryPanel historyEntries={historyEntries} highlightedDates={historyHighlightDates} liveEntry={liveHistoryEntry} autoSelectDate={todayCalendarDate} todayWorkout={workout} /></div>
-          <div style={{ gridColumn: '3 / 4', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><UpcomingPanel plan={plan} upcomingData={upcomingData} planBlocks={planBlocks} /></div>
+          <div style={{ gridColumn: '3 / 4', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><UpcomingPanel plan={plan} upcomingData={upcomingData} planBlocks={planBlocks} userId={dashboard?.user?.id} onSyncSuccess={() => setRefreshKey(k => k + 1)} /></div>
           <div style={{ gridColumn: '1 / 2', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}><AttendancePanel consistency={consistency} /></div>
           <div style={{ gridColumn: '2 / 3', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}>
             {plan === "custom" ? <CustomBuilderPanel exercises={customExercises} onChange={setCustomExercises} /> : <QuickLogPanel />}

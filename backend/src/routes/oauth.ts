@@ -3,6 +3,7 @@ import { exchangeCodeForTokens, getConsentUrl } from "../lib/googleAuth.js";
 import { prisma } from "../lib/db.js";
 import { startOnboarding } from "../lib/conversation.js";
 import { startVoiceOnboarding } from "../lib/voice.js";
+import { syncCalendarEventsForUser } from "../lib/scheduler.js";
 
 export const oauthRouter = Router();
 
@@ -33,6 +34,13 @@ oauthRouter.get("/google/callback", async (req, res) => {
         googleRefreshToken: tokens.refresh_token ?? null,
       },
     });
+
+    // If user already completed voice onboarding before connecting calendar,
+    // sync any scheduled workouts that are missing calendar events.
+    const synced = await syncCalendarEventsForUser(user);
+    if (synced > 0) {
+      console.log(`[OAuth] Synced ${synced} workout(s) to Google Calendar`);
+    }
 
     try {
       await startVoiceOnboarding(user);

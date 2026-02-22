@@ -214,3 +214,39 @@ export async function rescheduleWorkout(
   });
   return null;
 }
+
+/**
+ * Create Google Calendar events for scheduled workouts that don't have them yet.
+ * Called when a user connects Google Calendar after completing voice onboarding.
+ */
+export async function syncCalendarEventsForUser(user: User): Promise<number> {
+  if (!user.googleAccessToken) return 0;
+
+  const workouts = await prisma.scheduledWorkout.findMany({
+    where: {
+      userId: user.id,
+      status: { in: ["scheduled", "rescheduled"] },
+      calendarEventId: null,
+      startTime: { gte: new Date() },
+    },
+    orderBy: { startTime: "asc" },
+  });
+
+  let synced = 0;
+  for (const w of workouts) {
+    const eventId = await calendar.createCalendarEvent(user, {
+      start: w.startTime,
+      end: w.endTime,
+      title: `Gym – ${w.workoutBlockName}`,
+      description: "Scheduled by GymBuddy",
+    });
+    if (eventId) {
+      await prisma.scheduledWorkout.update({
+        where: { id: w.id },
+        data: { calendarEventId: eventId },
+      });
+      synced++;
+    }
+  }
+  return synced;
+}
