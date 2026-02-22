@@ -69,7 +69,7 @@ export default function LandingPage() {
             <SpotlightCard
               key={f.title}
               className="feature-card"
-              spotlightColor="rgba(232,196,104,0.45)"
+              spotlightColor="rgba(232,196,104,0.35)"
             >
               <div style={styles.featureInner}>
                 <span style={styles.featureIcon}>{f.icon}</span>
@@ -106,11 +106,12 @@ const fonts = `
     to   { opacity: 1; transform: translateY(0); }
   }
   .feature-card {
-    border-color: rgba(232,196,104,0.12) !important;
-    background-color: rgba(10,10,10,0.6) !important;
+    border-color: rgba(232,196,104,0.1) !important;
+    background-color: rgba(10,10,10,0.12) !important;
     border-radius: 0.75rem !important;
-    padding: 1rem 1.25rem !important;
-    backdrop-filter: blur(12px);
+    padding: 0.65rem 0.9rem !important;
+    backdrop-filter: blur(10px) saturate(1.4) !important;
+    -webkit-backdrop-filter: blur(10px) saturate(1.4) !important;
   }
 `;
 
@@ -133,21 +134,21 @@ const styles: Record<string, React.CSSProperties> = {
   overlay: {
     position: "fixed",
     inset: 0,
-    background: "linear-gradient(to bottom, rgba(10,10,10,0.55) 0%, rgba(10,10,10,0.75) 100%)",
+    background: "linear-gradient(to bottom, rgba(10,10,10,0.18) 0%, rgba(10,10,10,0.32) 100%)",
     zIndex: 1,
   },
   nav: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "1.5rem 2.5rem",
+    padding: "1rem 2rem",
     position: "relative",
     zIndex: 10,
     borderBottom: "1px solid rgba(232,196,104,0.1)",
   },
   logo: {
     fontFamily: "'Bebas Neue', sans-serif",
-    fontSize: "1.6rem",
+    fontSize: "1.4rem",
     letterSpacing: "0.1em",
     color: "#e8c468",
   },
@@ -155,10 +156,10 @@ const styles: Record<string, React.CSSProperties> = {
     background: "transparent",
     border: "1px solid rgba(232,196,104,0.4)",
     color: "#e8c468",
-    padding: "0.4rem 1.1rem",
+    padding: "0.35rem 1rem",
     borderRadius: "4px",
     cursor: "pointer",
-    fontSize: "0.85rem",
+    fontSize: "0.8rem",
     letterSpacing: "0.05em",
     fontFamily: "'DM Sans', sans-serif",
   },
@@ -172,10 +173,10 @@ const styles: Record<string, React.CSSProperties> = {
     border: "none",
     color: "#b0aca5",
     cursor: "pointer",
-    fontSize: "0.85rem",
+    fontSize: "0.8rem",
     letterSpacing: "0.05em",
     fontFamily: "'DM Sans', sans-serif",
-    padding: "0.4rem 0.5rem",
+    padding: "0.35rem 0.5rem",
   },
   main: {
     flex: 1,
@@ -183,39 +184,39 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: "column",
     alignItems: "flex-start",
     justifyContent: "center",
-    padding: "4rem 2.5rem 2rem",
-    maxWidth: "780px",
+    padding: "2rem 2rem 1rem",
+    maxWidth: "560px",
     margin: "0 auto",
     width: "100%",
     position: "relative",
     zIndex: 10,
   },
   tag: {
-    fontSize: "0.75rem",
+    fontSize: "0.68rem",
     letterSpacing: "0.15em",
     textTransform: "uppercase" as const,
     color: "#e8c468",
     border: "1px solid rgba(232,196,104,0.3)",
-    padding: "0.3rem 0.75rem",
+    padding: "0.25rem 0.65rem",
     borderRadius: "2px",
-    marginBottom: "1.75rem",
+    marginBottom: "1.5rem",
     animation: "fadeUp 0.6s ease 0.1s both",
   },
   headline: {
     fontFamily: "'Bebas Neue', sans-serif",
-    fontSize: "clamp(4rem, 12vw, 8rem)",
+    fontSize: "clamp(2.4rem, 7vw, 5rem)",
     lineHeight: 0.95,
     letterSpacing: "0.02em",
-    margin: "0 0 1.5rem",
+    margin: "0 0 1.25rem",
     animation: "fadeUp 0.6s ease 0.2s both",
   },
   accent: { color: "#e8c468" },
   sub: {
-    fontSize: "1.05rem",
+    fontSize: "0.85rem",
     lineHeight: 1.7,
     color: "#b0aca5",
-    maxWidth: "480px",
-    margin: "0 0 2.5rem",
+    maxWidth: "440px",
+    margin: "0 0 2rem",
     fontWeight: 300,
     animation: "fadeUp 0.6s ease 0.35s both",
   },
@@ -223,38 +224,39 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#e8c468",
     color: "#0a0a0a",
     border: "none",
-    padding: "0.85rem 2rem",
+    padding: "0.6rem 1.4rem",
     borderRadius: "4px",
     fontWeight: 600,
-    fontSize: "0.95rem",
+    fontSize: "0.8rem",
     cursor: "pointer",
     fontFamily: "'DM Sans', sans-serif",
     letterSpacing: "0.02em",
     transition: "transform 0.2s, box-shadow 0.2s",
     boxShadow: "0 4px 16px rgba(232,196,104,0.2)",
-    marginBottom: "4rem",
+    marginBottom: "3rem",
     animation: "fadeUp 0.6s ease 0.5s both",
   },
   features: {
     display: "flex",
     flexDirection: "column" as const,
-    gap: "1rem",
+    gap: "0.75rem",
     width: "100%",
     animation: "fadeUp 0.6s ease 0.65s both",
   },
   featureInner: {
     display: "flex",
     alignItems: "flex-start",
-    gap: "1rem",
+    gap: "0.85rem",
+    textAlign: "left" as const,
   },
-  featureIcon: { fontSize: "1.4rem", marginTop: "2px", flexShrink: 0 },
-  featureTitle: { fontWeight: 500, fontSize: "0.95rem", marginBottom: "0.2rem", color: "#f0ede6" },
-  featureDesc: { fontSize: "0.85rem", color: "#6b6760", lineHeight: 1.5 },
+  featureIcon: { fontSize: "1.2rem", marginTop: "2px", flexShrink: 0 },
+  featureTitle: { fontWeight: 500, fontSize: "0.88rem", marginBottom: "0.15rem", color: "#f0ede6", textAlign: "left" as const },
+  featureDesc: { fontSize: "0.78rem", color: "#6b6760", lineHeight: 1.5, textAlign: "left" as const },
   footer: {
     display: "flex",
     justifyContent: "space-between",
-    padding: "1rem 2.5rem",
-    fontSize: "0.75rem",
+    padding: "0.75rem 2rem",
+    fontSize: "0.72rem",
     color: "#3a3a3a",
     borderTop: "1px solid rgba(255,255,255,0.05)",
     position: "relative",
