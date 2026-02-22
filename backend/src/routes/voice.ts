@@ -6,6 +6,7 @@ import {
   handleTimeResponse,
   handleConfirmResponse,
   preWorkoutReminderTwiml,
+  recordVoiceCallStatus,
 } from "../lib/voice.js";
 
 export const voiceRouter = Router();
@@ -64,5 +65,6 @@ voiceRouter.post("/reminder", async (req, res) => {
 
 voiceRouter.post("/status", (req, res) => {
   console.log(`[Voice] Call status: ${req.body.CallStatus} (${req.body.CallSid})`);
+  recordVoiceCallStatus(req.body.CallSid, req.body.CallStatus);
   res.sendStatus(200);
 });

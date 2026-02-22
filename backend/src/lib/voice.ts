@@ -13,6 +13,9 @@ const client = TWILIO_SID && TWILIO_TOKEN ? twilio(TWILIO_SID, TWILIO_TOKEN) : n
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
+const ONBOARDING_CALL_COOLDOWN_MS = 2 * 60_000;
+const recentOnboardingCallAt = new Map<string, number>();
+const activeOnboardingCallBySid = new Map<string, string>();
 
 let BASE_URL = process.env.BASE_URL ?? "";
 
@@ -62,21 +65,33 @@ export async function callUser(
   return call.sid;
 }
 
+export function recordVoiceCallStatus(callSid?: string, callStatus?: string): void {
+  if (!callSid || !callStatus) return;
+  const terminal = new Set(["completed", "busy", "failed", "no-answer", "canceled"]);
+  if (terminal.has(callStatus)) {
+    activeOnboardingCallBySid.delete(callSid);
+  }
+}
+
 /**
  * Generate TwiML for the onboarding greeting.
  */
 export function onboardingGreeting(userId: string, goalLabel: string): string {
   const twiml = new VoiceResponse();
+  twiml.say(
+    { voice: "Polly.Matthew" },
+    `Hey! I'm your Gym Buddy. I see you're going for ${goalLabel}. Let's set up your workout schedule.`
+  );
   const gather = twiml.gather({
     input: ["speech"],
     action: `${BASE_URL}/webhooks/voice/onboard/days?userId=${userId}`,
-    speechTimeout: "3",
+    speechTimeout: "auto",
+    timeout: 6,
     language: "en-US",
   });
   gather.say(
     { voice: "Polly.Matthew" },
-    `Hey! I'm your Gym Buddy. I see you're going for ${goalLabel}. ` +
-    `Let's set up your workout schedule. How many days a week do you want to hit the gym, and which days work best?`
+    `How many days a week do you want to hit the gym, and which days work best?`
   );
   twiml.say({ voice: "Polly.Matthew" }, "I didn't catch that. Let me call you back.");
   return twiml.toString();
@@ -112,7 +127,8 @@ export async function handleDaysResponse(userId: string, speechResult: string): 
     const gather = twiml.gather({
       input: ["speech"],
       action: `${BASE_URL}/webhooks/voice/onboard/days?userId=${userId}`,
-      speechTimeout: "3",
+      speechTimeout: "auto",
+      timeout: 6,
     });
     gather.say({ voice: "Polly.Matthew" }, "I didn't quite get that. Which days do you want to work out? For example, Monday, Wednesday, and Friday.");
     return twiml.toString();
@@ -123,7 +139,8 @@ export async function handleDaysResponse(userId: string, speechResult: string): 
     const gather = twiml.gather({
       input: ["speech"],
       action: `${BASE_URL}/webhooks/voice/onboard/days?userId=${userId}`,
-      speechTimeout: "3",
+      speechTimeout: "auto",
+      timeout: 6,
     });
     gather.say({ voice: "Polly.Matthew" }, `${count} days, solid! Which specific days work for you?`);
     return twiml.toString();
@@ -140,7 +157,8 @@ export async function handleDaysResponse(userId: string, speechResult: string): 
   const gather = twiml.gather({
     input: ["speech"],
     action: `${BASE_URL}/webhooks/voice/onboard/time?userId=${userId}`,
-    speechTimeout: "3",
+    speechTimeout: "auto",
+    timeout: 6,
   });
   gather.say({ voice: "Polly.Matthew" }, `${dayList}, great choices! Do you prefer working out in the morning, afternoon, or evening?`);
   return twiml.toString();
@@ -163,7 +181,8 @@ export async function handleTimeResponse(userId: string, speechResult: string): 
     const gather = twiml.gather({
       input: ["speech"],
       action: `${BASE_URL}/webhooks/voice/onboard/time?userId=${userId}`,
-      speechTimeout: "3",
+      speechTimeout: "auto",
+      timeout: 6,
     });
     gather.say({ voice: "Polly.Matthew" }, "Would you prefer morning, afternoon, or evening workouts?");
     return twiml.toString();
@@ -180,7 +199,8 @@ export async function handleTimeResponse(userId: string, speechResult: string): 
   const gather = twiml.gather({
     input: ["speech"],
     action: `${BASE_URL}/webhooks/voice/onboard/confirm?userId=${userId}`,
-    speechTimeout: "3",
+    speechTimeout: "auto",
+    timeout: 6,
   });
   gather.say(
     { voice: "Polly.Matthew" },
@@ -203,7 +223,8 @@ export async function handleConfirmResponse(userId: string, speechResult: string
     const gather = twiml.gather({
       input: ["speech"],
       action: `${BASE_URL}/webhooks/voice/onboard/days?userId=${userId}`,
-      speechTimeout: "3",
+      speechTimeout: "auto",
+      timeout: 6,
     });
     gather.say({ voice: "Polly.Matthew" }, "No problem! Let's start over. How many days a week and which days work for you?");
     return twiml.toString();
@@ -274,12 +295,22 @@ export function preWorkoutReminderTwiml(workoutName: string, minutesUntil: numbe
  * Call user to start onboarding.
  */
 export async function startVoiceOnboarding(user: User): Promise<void> {
+  const lastCall = recentOnboardingCallAt.get(user.id) ?? 0;
+  if (Date.now() - lastCall < ONBOARDING_CALL_COOLDOWN_MS) {
+    console.log(`[Voice] Skipping duplicate onboarding call for ${user.phoneNumber}`);
+    return;
+  }
+
   await prisma.user.update({
     where: { id: user.id },
     data: { onboardingStep: "voice_onboarding" },
   });
 
-  await callUser(user.phoneNumber, `/webhooks/voice/onboard/greet?userId=${user.id}`);
+  const callSid = await callUser(user.phoneNumber, `/webhooks/voice/onboard/greet?userId=${user.id}`);
+  recentOnboardingCallAt.set(user.id, Date.now());
+  if (callSid) {
+    activeOnboardingCallBySid.set(callSid, user.id);
+  }
 }
 
 async function parseDaysWithAi(
