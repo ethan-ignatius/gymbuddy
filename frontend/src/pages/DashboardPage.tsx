@@ -653,6 +653,7 @@ function HistoryPanel() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  position: "relative",
                   fontSize: "0.55rem",
                   cursor: session ? "pointer" : "default",
                   background: isSelected
@@ -671,6 +672,26 @@ function HistoryPanel() {
                 }}
               >
                 {day}
+                {session?.notes && (
+                  <span style={{
+                    position: "absolute",
+                    top: "4px",
+                    right: "4px",
+                    width: "4px",
+                    height: "4px",
+                    borderRadius: "50%",
+                    background: "#ff9f0a",
+                  }} />
+                )}
+                {session?.prs > 0 && (
+                  <span style={{
+                    position: "absolute",
+                    top: "4px",
+                    left: "3px",
+                    fontSize: "0.35rem",
+                    lineHeight: 1,
+                  }}>⭐</span>
+                )}
               </div>
             );
           })}

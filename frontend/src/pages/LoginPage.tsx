@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import LiquidEther from "../components/LiquidEther";
-import GlassSurface from "../components/GlassSurface";
+import SpotlightCard from "../components/SpotlightCard";
 
 export default function LoginPage() {
     const navigate = useNavigate();
@@ -54,17 +54,7 @@ export default function LoginPage() {
                 <div style={s.wrapper}>
                     <a href="/" style={s.back}>{"<- Back"}</a>
 
-                    <GlassSurface
-                        width="100%"
-                        height="auto"
-                        borderRadius={20}
-                        brightness={50}
-                        opacity={0.93}
-                        blur={11}
-                        backgroundOpacity={0}
-                        saturation={1}
-                        className="login-card"
-                    >
+                    <SpotlightCard className="login-card" spotlightColor="rgba(232,196,104,0.1)">
                         <div style={s.header}>
                             <span style={s.logo}>GB</span>
                             <h1 style={s.title}>Welcome back</h1>
@@ -103,7 +93,7 @@ export default function LoginPage() {
                             Don't have an account?{" "}
                             <a href="/signup" style={s.switchLink}>Sign up</a>
                         </p>
-                    </GlassSurface>
+                    </SpotlightCard>
                 </div>
             </div>
 
@@ -115,13 +105,13 @@ export default function LoginPage() {
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap');
   .login-card {
+    border-color: rgba(232,196,104,0.12) !important;
+    background-color: rgba(14,14,14,0.85) !important;
+    border-radius: 1.25rem !important;
+    padding: 2.5rem !important;
+    backdrop-filter: blur(20px) !important;
     max-width: 440px;
     width: 100%;
-  }
-  .login-card .glass-surface__content {
-    padding: 2.5rem;
-    flex-direction: column;
-    align-items: stretch;
   }
   input::placeholder { color: #444; }
 `;

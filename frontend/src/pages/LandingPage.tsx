@@ -67,7 +67,7 @@ export default function LandingPage() {
 
         <div style={styles.features}>
           {FEATURES.map((f) => (
-            <div key={f.title} style={styles.glassCard}>
+            <div key={f.title} className="feature-glass" style={styles.glassCard}>
               <div style={styles.featureInner}>
                 <span style={styles.featureIcon}>{f.icon}</span>
                 <div>
@@ -101,6 +101,36 @@ const fonts = `
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(20px); }
     to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  .feature-glass {
+    transition: transform 0.28s ease, border-color 0.28s ease, box-shadow 0.28s ease;
+    cursor: default;
+  }
+  .feature-glass:hover {
+    transform: translateY(-4px);
+    border-color: rgba(232,196,104,0.28);
+    box-shadow: 0 6px 24px rgba(232,196,104,0.12), inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+  .feature-glass::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      105deg,
+      transparent 40%,
+      rgba(232,196,104,0.08) 50%,
+      transparent 60%
+    );
+    transform: translateX(-100%);
+    pointer-events: none;
+  }
+  .feature-glass:hover::after {
+    animation: shimmer 0.7s ease forwards;
   }
 `;
 

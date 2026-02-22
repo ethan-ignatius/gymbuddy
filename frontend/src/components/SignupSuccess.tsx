@@ -1,21 +1,11 @@
-import GlassSurface from "./GlassSurface";
+import SpotlightCard from "./SpotlightCard";
 
 type Props = { calendarAuthUrl: string };
 
 export default function SignupSuccess({ calendarAuthUrl }: Props) {
   return (
     <div style={s.wrapper}>
-      <GlassSurface
-        width="100%"
-        height="auto"
-        borderRadius={20}
-        brightness={50}
-        opacity={0.93}
-        blur={11}
-        backgroundOpacity={0}
-        saturation={1}
-        className="success-card"
-      >
+      <SpotlightCard className="success-card" spotlightColor="rgba(232,196,104,0.1)">
         <div style={s.iconWrap}>
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#e8c468" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
@@ -54,7 +44,7 @@ export default function SignupSuccess({ calendarAuthUrl }: Props) {
             days, times, and intensity — all over SMS.
           </p>
         </div>
-      </GlassSurface>
+      </SpotlightCard>
 
       <style>{css}</style>
     </div>
@@ -64,14 +54,14 @@ export default function SignupSuccess({ calendarAuthUrl }: Props) {
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap');
   .success-card {
+    border-color: rgba(232,196,104,0.12) !important;
+    background-color: rgba(14,14,14,0.85) !important;
+    border-radius: 1.25rem !important;
+    padding: 2.5rem !important;
+    backdrop-filter: blur(20px) !important;
     max-width: 440px;
     width: 100%;
     text-align: center;
-  }
-  .success-card .glass-surface__content {
-    padding: 2.5rem;
-    flex-direction: column;
-    align-items: stretch;
   }
 `;
 
