@@ -72,10 +72,10 @@ function useBorderGlow(ref: RefObject<HTMLElement | null>) {
 
 type GoalValue = SignupPayload["goal"] | "custom";
 
-const GOALS: { value: GoalValue; label: string; desc: string; icon: string }[] = [
-  { value: "strength_without_size", label: "Strength Focus", desc: "Raw power, lower volume.", icon: "PWR" },
-  { value: "strength_and_size", label: "Hypertrophy Focus", desc: "Size and strength progression.", icon: "MUS" },
-  { value: "custom", label: "Custom Plan", desc: "Start here and tune later.", icon: "CST" },
+const GOALS: { value: GoalValue; label: string; desc: string }[] = [
+  { value: "strength_without_size", label: "Strength Focus", desc: "Raw power, lower volume." },
+  { value: "strength_and_size", label: "Hypertrophy Focus", desc: "Size and strength progression." },
+  { value: "custom", label: "Custom Plan", desc: "Start here and tune later." },
 ];
 
 const CARRIERS: { value: string; label: string }[] = [
@@ -165,7 +165,6 @@ export default function SignupForm({ onSubmit }: Props) {
   const [heightIn, setHeightIn] = useState("");
   const [weightLbs, setWeightLbs] = useState("");
   const [goal, setGoal] = useState<GoalValue>("strength_and_size");
-  const [gymTravelMinutes, setGymTravelMinutes] = useState("15");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -176,9 +175,8 @@ export default function SignupForm({ onSubmit }: Props) {
     const ft = Number(heightFt);
     const inch = Number(heightIn || "0");
     const lbs = Number(weightLbs);
-    const travel = Number(gymTravelMinutes || "15");
 
-    if (Number.isNaN(ft) || Number.isNaN(inch) || Number.isNaN(lbs) || Number.isNaN(travel)) {
+    if (Number.isNaN(ft) || Number.isNaN(inch) || Number.isNaN(lbs)) {
       setError("Please enter valid numeric values.");
       return;
     }
@@ -192,7 +190,7 @@ export default function SignupForm({ onSubmit }: Props) {
         heightCm: Math.round((ft * 12 + inch) * 2.54),
         weightKg: Math.round((lbs * 0.453592) * 10) / 10,
         goal: goal === "custom" ? "strength_and_size" : goal,
-        gymTravelMinutes: travel,
+        gymTravelMinutes: 15, // default, hidden from user
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -278,10 +276,6 @@ export default function SignupForm({ onSubmit }: Props) {
                 <NumberStepper value={weightLbs} onChange={setWeightLbs} min={66} max={660} step={1} placeholder="165" />
               </div>
             </div>
-            <div style={s.field}>
-              <label style={s.label}>Travel time to gym (minutes)</label>
-              <NumberStepper value={gymTravelMinutes} onChange={setGymTravelMinutes} min={0} max={120} step={5} placeholder="15" />
-            </div>
           </div>
 
           <div style={s.section}>
@@ -292,8 +286,7 @@ export default function SignupForm({ onSubmit }: Props) {
                 return (
                   <GoalBtn key={g.value} active={active} onClick={() => setGoal(g.value)}>
                     <div style={s.goalTop}>
-                      <span style={{ ...s.goalIcon, ...(active ? s.goalIconActive : {}) }}>{g.icon}</span>
-                      {active && <span style={s.goalCheck}>OK</span>}
+                      {active && <span style={s.goalCheck}>✓</span>}
                     </div>
                     <span style={{ ...s.goalTitle, ...(active ? { color: "#e8c468" } : {}) }}>{g.label}</span>
                     <span style={s.goalDesc}>{g.desc}</span>
@@ -483,9 +476,13 @@ const s: Record<string, CSSProperties> = {
     background: "rgba(232,196,104,0.06)",
     boxShadow: "0 0 16px rgba(232,196,104,0.08)",
   },
-  goalTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" },
-  goalIcon: { fontSize: "0.8rem", color: "#aaa", letterSpacing: "0.06em" },
-  goalIconActive: { color: "#e8c468" },
+  goalTop: {
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    marginBottom: "0.2rem",
+    minHeight: "18px",
+  },
   goalCheck: {
     fontSize: "0.65rem",
     color: "#e8c468",

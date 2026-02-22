@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import { signupRouter } from "./routes/signup.js";
+import { loginRouter } from "./routes/login.js";
 import { scheduleRouter } from "./routes/schedule.js";
 import { oauthRouter } from "./routes/oauth.js";
 import { webhooksRouter } from "./routes/webhooks.js";
@@ -15,6 +16,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api/signup", signupRouter);
+app.use("/api/login", loginRouter);
 app.use("/api/oauth", oauthRouter);
 app.use("/api", scheduleRouter);
 app.use("/api/chat", chatRouter);
