@@ -25,6 +25,7 @@ interface HistoryEntry {
   formAvg: number;
   prs: number;
   notes?: string;
+  exercises?: { name: string; detail: string }[];
 }
 
 interface ChatMessage {
@@ -35,35 +36,148 @@ interface ChatMessage {
 
 // ─── Mock Data ─────────────────────────────────────────────────────────────────
 
-const TODAY_WORKOUT: WorkoutBlock = {
-  name: "Upper A",
-  day: "Today",
-  focus: "Strength & Size",
-  exercises: [
-    { name: "Bench Press", sets: 4, reps: "8-10", weight: 185, formScore: 91 },
-    { name: "Barbell Row", sets: 4, reps: "8-10", weight: 155, formScore: 87 },
-    { name: "Overhead Press", sets: 3, reps: "8-10", weight: 115, formScore: 94 },
-    { name: "Lat Pulldown", sets: 3, reps: "10-12", weight: 130 },
-    { name: "Bicep Curl", sets: 3, reps: "10-12", weight: 45 },
-    { name: "Tricep Pushdown", sets: 3, reps: "10-12", weight: 60 },
-  ],
-};
+type PlanType = "strength" | "hypertrophy" | "custom";
+
+const STRENGTH_DAYS: WorkoutBlock[] = [
+  {
+    name: "Heavy Upper", day: "Day A", focus: "Strength",
+    exercises: [
+      { name: "Barbell Bench Press", sets: 5, reps: "3", weight: 225 },
+      { name: "Pendlay Row", sets: 5, reps: "5", weight: 185 },
+      { name: "Overhead Press", sets: 5, reps: "3", weight: 135 },
+      { name: "Weighted Pull-up", sets: 4, reps: "5", weight: 45 },
+      { name: "Barbell Curl", sets: 3, reps: "5", weight: 80 },
+    ],
+  },
+  {
+    name: "Heavy Lower", day: "Day B", focus: "Strength",
+    exercises: [
+      { name: "Back Squat", sets: 5, reps: "3", weight: 315 },
+      { name: "Deadlift", sets: 5, reps: "3", weight: 365 },
+      { name: "Front Squat", sets: 3, reps: "5", weight: 205 },
+      { name: "Barbell Lunge", sets: 3, reps: "5", weight: 135 },
+      { name: "Calf Raise", sets: 4, reps: "8", weight: 225 },
+    ],
+  },
+  {
+    name: "Power Day", day: "Day C", focus: "Strength",
+    exercises: [
+      { name: "Incline Bench", sets: 5, reps: "5", weight: 185 },
+      { name: "Barbell Row", sets: 5, reps: "5", weight: 175 },
+      { name: "Back Squat", sets: 5, reps: "5", weight: 275 },
+      { name: "Close-Grip Bench", sets: 3, reps: "5", weight: 165 },
+      { name: "Weighted Dip", sets: 3, reps: "5", weight: 45 },
+    ],
+  },
+];
+
+const HYPERTROPHY_DAYS: WorkoutBlock[] = [
+  {
+    name: "Push", day: "Day A", focus: "PPL",
+    exercises: [
+      { name: "Bench Press", sets: 4, reps: "8-10", weight: 185 },
+      { name: "Incline DB Press", sets: 4, reps: "10-12", weight: 65 },
+      { name: "Overhead Press", sets: 3, reps: "10-12", weight: 95 },
+      { name: "Lateral Raise", sets: 3, reps: "12-15", weight: 20 },
+      { name: "Tricep Pushdown", sets: 3, reps: "12", weight: 55 },
+      { name: "Overhead Extension", sets: 3, reps: "12", weight: 50 },
+    ],
+  },
+  {
+    name: "Pull", day: "Day B", focus: "PPL",
+    exercises: [
+      { name: "Barbell Row", sets: 4, reps: "8-10", weight: 155 },
+      { name: "Lat Pulldown", sets: 3, reps: "10-12", weight: 130 },
+      { name: "Cable Row", sets: 3, reps: "10-12", weight: 120 },
+      { name: "Face Pull", sets: 3, reps: "15", weight: 40 },
+      { name: "Bicep Curl", sets: 3, reps: "12", weight: 35 },
+      { name: "Hammer Curl", sets: 3, reps: "12", weight: 30 },
+    ],
+  },
+  {
+    name: "Legs", day: "Day C", focus: "PPL",
+    exercises: [
+      { name: "Back Squat", sets: 4, reps: "8-10", weight: 225 },
+      { name: "Romanian Deadlift", sets: 3, reps: "10-12", weight: 185 },
+      { name: "Leg Press", sets: 3, reps: "12", weight: 360 },
+      { name: "Leg Curl", sets: 3, reps: "12", weight: 90 },
+      { name: "Calf Raise", sets: 4, reps: "15", weight: 180 },
+    ],
+  },
+];
+
+function getTodayWorkout(plan: PlanType, customExercises: Exercise[]): WorkoutBlock {
+  const dayIndex = new Date().getDay() % 3; // cycle A/B/C
+  if (plan === "strength") return STRENGTH_DAYS[dayIndex];
+  if (plan === "hypertrophy") return HYPERTROPHY_DAYS[dayIndex];
+  return {
+    name: "My Workout",
+    day: "Today",
+    focus: "Custom",
+    exercises: customExercises,
+  };
+}
 
 const HISTORY: HistoryEntry[] = [
-  { date: "Feb 19", blockName: "Lower A", duration: "58m", formAvg: 89, prs: 1, notes: "Left knee felt tight on squats" },
-  { date: "Feb 17", blockName: "Upper B", duration: "62m", formAvg: 92, prs: 0 },
-  { date: "Feb 14", blockName: "Lower B", duration: "55m", formAvg: 86, prs: 2 },
-  { date: "Feb 12", blockName: "Upper A", duration: "61m", formAvg: 88, prs: 1 },
-  { date: "Feb 10", blockName: "Lower A", duration: "49m", formAvg: 90, prs: 0 },
+  {
+    date: "Feb 19", blockName: "Lower A", duration: "58m", formAvg: 89, prs: 1, notes: "Left knee felt tight on squats",
+    exercises: [{ name: "Back Squat", detail: "5×3 @ 305 lbs" }, { name: "Deadlift", detail: "5×3 @ 355 lbs" }, { name: "Front Squat", detail: "3×5 @ 195 lbs" }, { name: "Lunges", detail: "3×5 @ 135 lbs" }]
+  },
+  {
+    date: "Feb 17", blockName: "Upper B", duration: "62m", formAvg: 92, prs: 0,
+    exercises: [{ name: "Incline DB Press", detail: "4×10 @ 65 lbs" }, { name: "Cable Row", detail: "4×10 @ 120 lbs" }, { name: "Lateral Raise", detail: "3×12 @ 20 lbs" }, { name: "Face Pull", detail: "3×15 @ 40 lbs" }]
+  },
+  {
+    date: "Feb 14", blockName: "Lower B", duration: "55m", formAvg: 86, prs: 2,
+    exercises: [{ name: "Back Squat", detail: "4×8 @ 225 lbs 🏆" }, { name: "RDL", detail: "3×10 @ 185 lbs" }, { name: "Leg Press", detail: "3×12 @ 370 lbs 🏆" }, { name: "Calf Raise", detail: "4×15 @ 180 lbs" }]
+  },
+  {
+    date: "Feb 12", blockName: "Upper A", duration: "61m", formAvg: 88, prs: 1,
+    exercises: [{ name: "Bench Press", detail: "4×8 @ 185 lbs" }, { name: "Barbell Row", detail: "4×10 @ 155 lbs" }, { name: "OHP", detail: "3×10 @ 95 lbs 🏆" }, { name: "Lat Pulldown", detail: "3×10 @ 130 lbs" }]
+  },
+  {
+    date: "Feb 10", blockName: "Lower A", duration: "49m", formAvg: 90, prs: 0,
+    exercises: [{ name: "Back Squat", detail: "5×3 @ 295 lbs" }, { name: "Deadlift", detail: "5×3 @ 345 lbs" }, { name: "Front Squat", detail: "3×5 @ 185 lbs" }]
+  },
+  {
+    date: "Feb 7", blockName: "Upper B", duration: "57m", formAvg: 84, prs: 0,
+    exercises: [{ name: "Incline DB Press", detail: "4×10 @ 60 lbs" }, { name: "Cable Row", detail: "4×10 @ 115 lbs" }, { name: "Lateral Raise", detail: "3×12 @ 20 lbs" }]
+  },
+  {
+    date: "Feb 5", blockName: "Lower B", duration: "53m", formAvg: 91, prs: 1,
+    exercises: [{ name: "Back Squat", detail: "4×8 @ 215 lbs" }, { name: "RDL", detail: "3×10 @ 175 lbs 🏆" }, { name: "Leg Press", detail: "3×12 @ 360 lbs" }]
+  },
+  {
+    date: "Feb 3", blockName: "Upper A", duration: "60m", formAvg: 87, prs: 0,
+    exercises: [{ name: "Bench Press", detail: "4×8 @ 180 lbs" }, { name: "Barbell Row", detail: "4×10 @ 150 lbs" }, { name: "OHP", detail: "3×10 @ 90 lbs" }]
+  },
 ];
+
 
 const CONSISTENCY = [1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0];
 
-const UPCOMING = [
-  { day: "Mon", date: "Feb 24", name: "Lower A", time: "7:00 AM" },
-  { day: "Wed", date: "Feb 26", name: "Upper B", time: "7:00 AM" },
-  { day: "Fri", date: "Feb 28", name: "Lower B", time: "7:00 AM" },
-];
+// Map history dates to a calendar lookup
+const HISTORY_BY_DATE: Record<string, HistoryEntry> = {};
+HISTORY.forEach((h) => { HISTORY_BY_DATE[h.date] = h; });
+
+function getUpcoming(plan: PlanType) {
+  if (plan === "strength") {
+    return [
+      { day: "Mon", date: "Feb 24", name: STRENGTH_DAYS[0].name, time: "7:00 AM" },
+      { day: "Wed", date: "Feb 26", name: STRENGTH_DAYS[1].name, time: "7:00 AM" },
+      { day: "Fri", date: "Feb 28", name: STRENGTH_DAYS[2].name, time: "7:00 AM" },
+    ];
+  }
+  // PPL: 6 days on, 1 rest
+  return [
+    { day: "Mon", date: "Feb 24", name: "Push", time: "7:00 AM" },
+    { day: "Tue", date: "Feb 25", name: "Pull", time: "7:00 AM" },
+    { day: "Wed", date: "Feb 26", name: "Legs", time: "7:00 AM" },
+    { day: "Thu", date: "Feb 27", name: "Push", time: "7:00 AM" },
+    { day: "Fri", date: "Feb 28", name: "Pull", time: "7:00 AM" },
+    { day: "Sat", date: "Mar 1", name: "Legs", time: "8:00 AM" },
+  ];
+}
 
 const INITIAL_MESSAGES: ChatMessage[] = [
   { role: "ai", text: "Hey! I'm watching your form and tracking your progress. Ask me about weights, substitutions, or anything.", time: "now" },
@@ -139,7 +253,7 @@ function Card({ children, style, label }: { children: React.ReactNode; style?: R
 
 // ─── Panel: Today's Workout ───────────────────────────────────────────────────
 
-function WorkoutPanel() {
+function WorkoutPanel({ workout }: { workout: WorkoutBlock }) {
   const [completedSets, setCompletedSets] = useState<Record<string, boolean[]>>({});
   const [restTimer, setRestTimer] = useState<number | null>(null);
   const [restActive, setRestActive] = useState(false);
@@ -164,7 +278,7 @@ function WorkoutPanel() {
   const toggleSet = (exIdx: number, setIdx: number) => {
     const key = String(exIdx);
     setCompletedSets((prev) => {
-      const curr = prev[key] ?? Array(TODAY_WORKOUT.exercises[exIdx].sets).fill(false);
+      const curr = prev[key] ?? Array(workout.exercises[exIdx].sets).fill(false);
       const next = [...curr];
       next[setIdx] = !next[setIdx];
       if (next[setIdx]) startRest(90);
@@ -172,18 +286,29 @@ function WorkoutPanel() {
     });
   };
 
-  const totalSets = TODAY_WORKOUT.exercises.reduce((a, e) => a + e.sets, 0);
+  const totalSets = workout.exercises.reduce((a, e) => a + e.sets, 0);
   const doneSets = Object.values(completedSets).flat().filter(Boolean).length;
   const pct = totalSets > 0 ? Math.round((doneSets / totalSets) * 100) : 0;
+
+  if (workout.exercises.length === 0) {
+    return (
+      <Card label="Today's Workout">
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, gap: "0.5rem", color: "#555" }}>
+          <span style={{ fontSize: "1.5rem" }}>🏋️</span>
+          <span style={{ fontSize: "0.82rem" }}>No exercises yet — add some below</span>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card label="Today's Workout">
       {/* Header row */}
       <div style={S.workoutHeader}>
         <div>
-          <div style={S.workoutTag}>{TODAY_WORKOUT.focus}</div>
-          <h2 style={S.workoutTitle}>{TODAY_WORKOUT.name}</h2>
-          <div style={S.workoutMeta}>{TODAY_WORKOUT.exercises.length} exercises · {totalSets} sets total</div>
+          <div style={S.workoutTag}>{workout.focus}</div>
+          <h2 style={S.workoutTitle}>{workout.name}</h2>
+          <div style={S.workoutMeta}>{workout.exercises.length} exercises · {totalSets} sets total</div>
         </div>
         <div style={S.progressWrap}>
           <ScoreRing score={pct} size={56} />
@@ -208,7 +333,7 @@ function WorkoutPanel() {
 
       {/* Exercise list */}
       <div style={S.exerciseList}>
-        {TODAY_WORKOUT.exercises.map((ex, exIdx) => {
+        {workout.exercises.map((ex, exIdx) => {
           const sets = completedSets[String(exIdx)] ?? Array(ex.sets).fill(false);
           const allDone = sets.every(Boolean);
           return (
@@ -241,25 +366,93 @@ function WorkoutPanel() {
   );
 }
 
-// ─── Panel: Stats Strip ───────────────────────────────────────────────────────
+// ─── Custom Workout Builder ───────────────────────────────────────────────────
 
-function StatsPanel() {
-  const avgForm = Math.round(HISTORY.reduce((a, h) => a + h.formAvg, 0) / HISTORY.length);
-  const totalPRs = HISTORY.reduce((a, h) => a + h.prs, 0);
-  const stats = [
-    { label: "Workouts", value: String(HISTORY.length), color: "#f0ede6" },
-    { label: "Avg Form", value: String(avgForm), color: scoreColor(avgForm) },
-    { label: "PRs Set", value: String(totalPRs), color: "#e8c468" },
-    { label: "Wk Streak", value: "4", color: "#f0ede6" },
-  ];
+function CustomBuilderPanel({ exercises, onChange }: { exercises: Exercise[]; onChange: (exs: Exercise[]) => void }) {
+  const [name, setName] = useState("");
+  const [sets, setSets] = useState("");
+  const [reps, setReps] = useState("");
+  const [weight, setWeight] = useState("");
+
+  const addExercise = () => {
+    if (!name || !sets || !reps) return;
+    onChange([...exercises, { name, sets: Number(sets), reps, weight: weight ? Number(weight) : undefined }]);
+    setName(""); setSets(""); setReps(""); setWeight("");
+  };
+
+  const removeExercise = (idx: number) => {
+    onChange(exercises.filter((_, i) => i !== idx));
+  };
 
   return (
-    <Card label="Stats">
-      <div style={S.statsRow}>
-        {stats.map((s) => (
-          <div key={s.label} style={S.statItem}>
-            <div style={{ ...S.statValue, color: s.color }}>{s.value}</div>
-            <div style={S.statLabel}>{s.label}</div>
+    <Card label="Build Your Workout">
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Exercise name"
+          style={{ ...S.logInput, width: "100%" }}
+        />
+        <div style={{ display: "flex", gap: "0.3rem" }}>
+          <input
+            type="text" inputMode="numeric" pattern="[0-9]*"
+            value={sets}
+            onChange={(e) => setSets(e.target.value.replace(/[^0-9]/g, ""))}
+            placeholder="Sets"
+            style={{ ...S.logInput, flex: 1, textAlign: "center" }}
+          />
+          <input
+            value={reps}
+            onChange={(e) => setReps(e.target.value)}
+            placeholder="Reps"
+            style={{ ...S.logInput, flex: 1, textAlign: "center" }}
+          />
+          <input
+            type="text" inputMode="numeric" pattern="[0-9]*"
+            value={weight}
+            onChange={(e) => setWeight(e.target.value.replace(/[^0-9]/g, ""))}
+            placeholder="lbs"
+            style={{ ...S.logInput, flex: 1, textAlign: "center" }}
+          />
+          <button onClick={addExercise} style={S.logBtn}>+</button>
+        </div>
+      </div>
+      {exercises.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", flex: 1, overflow: "auto", minHeight: 0 }}>
+          {exercises.map((ex, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "rgba(255,255,255,0.03)", borderRadius: "6px", padding: "0.3rem 0.5rem", fontSize: "0.75rem" }}>
+              <span style={{ fontWeight: 600, flex: 1 }}>{ex.name}</span>
+              <span style={{ color: "#e8c468" }}>{ex.sets}×{ex.reps}{ex.weight ? ` · ${ex.weight}lbs` : ""}</span>
+              <button onClick={() => removeExercise(i)} style={{ background: "none", border: "none", color: "#ff453a", cursor: "pointer", fontSize: "0.82rem", padding: "0 0.2rem" }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Panel: PR Tracker ────────────────────────────────────────────────────────
+
+const RECENT_PRS = [
+  { exercise: "Back Squat", weight: 225, date: "Feb 14" },
+  { exercise: "Leg Press", weight: 370, date: "Feb 14" },
+  { exercise: "OHP", weight: 95, date: "Feb 12" },
+  { exercise: "RDL", weight: 175, date: "Feb 5" },
+];
+
+function PRTrackerPanel() {
+  return (
+    <Card label="Personal Records">
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", overflow: "auto", flex: 1, minHeight: 0 }}>
+        {RECENT_PRS.map((pr, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.35rem", background: "rgba(232,196,104,0.06)", borderRadius: "6px", padding: "0.25rem 0.4rem" }}>
+            <span style={{ fontSize: "0.7rem" }}>🏆</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "0.7rem", fontWeight: 600 }}>{pr.exercise}</div>
+              <div style={{ fontSize: "0.55rem", color: "#555" }}>{pr.date}</div>
+            </div>
+            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "0.95rem", color: "#e8c468" }}>{pr.weight}<span style={{ fontSize: "0.55rem", color: "#555" }}> lbs</span></span>
           </div>
         ))}
       </div>
@@ -267,27 +460,57 @@ function StatsPanel() {
   );
 }
 
-// ─── Panel: Upcoming ──────────────────────────────────────────────────────────
+// ─── Panel: Upcoming (Calendar-synced) ────────────────────────────────────────
 
-function UpcomingPanel() {
+function UpcomingPanel({ plan }: { plan: PlanType }) {
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const upcoming = getUpcoming(plan);
+  // Map upcoming names to preset exercises for preview
+  const getPreview = (name: string) => {
+    const all = [...STRENGTH_DAYS, ...HYPERTROPHY_DAYS];
+    const match = all.find((d) => d.name === name);
+    return match?.exercises ?? [];
+  };
+
   return (
     <Card label="Upcoming">
-      <div style={S.upcomingList}>
-        {UPCOMING.map((u, i) => (
-          <div key={i} style={S.upcomingItem}>
-            <div style={S.upcomingDay}>{u.day}</div>
-            <div style={S.upcomingName}>{u.name}</div>
-            <div style={S.upcomingTime}>{u.time}</div>
+      <div style={{ ...S.upcomingList, overflow: "auto" }}>
+        {upcoming.map((u, i) => (
+          <div key={i}>
+            <div
+              style={{ ...S.upcomingItem, cursor: "pointer" }}
+              onClick={() => setExpanded(expanded === i ? null : i)}
+            >
+              <span style={{ fontSize: "0.7rem" }}>📅</span>
+              <div style={S.upcomingDay}>{u.day}</div>
+              <div style={S.upcomingName}>{u.name}</div>
+              <div style={S.upcomingTime}>{u.time}</div>
+              <span style={{ color: "#555", fontSize: "0.55rem" }}>{expanded === i ? "▲" : "▼"}</span>
+            </div>
+            {expanded === i && (
+              <div style={{ padding: "0.15rem 0.4rem 0.3rem", display: "flex", flexDirection: "column", gap: "0.1rem", animation: "fadeUp 0.15s ease" }}>
+                {getPreview(u.name).map((ex, j) => (
+                  <div key={j} style={{ display: "flex", fontSize: "0.58rem", gap: "0.2rem" }}>
+                    <span style={{ color: "#888" }}>{ex.name}</span>
+                    <span style={{ color: "#e8c468", marginLeft: "auto" }}>{ex.sets}×{ex.reps}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.55rem", color: "#30d158", flexShrink: 0 }}>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#30d158", display: "inline-block" }} />
+        Synced with Google Calendar
       </div>
     </Card>
   );
 }
 
-// ─── Panel: Consistency Heatmap ───────────────────────────────────────────────
+// ─── Panel: Attendance ────────────────────────────────────────────────────────
 
-function ConsistencyPanel() {
+function AttendancePanel() {
   const attended = CONSISTENCY.filter(Boolean).length;
   const pct = Math.round((attended / CONSISTENCY.length) * 100);
 
@@ -390,22 +613,87 @@ function QuickLogPanel() {
   );
 }
 
-// ─── Panel: Recent History ────────────────────────────────────────────────────
+// ─── Panel: Session Calendar Grid ─────────────────────────────────────────────
 
 function HistoryPanel() {
+  const [selected, setSelected] = useState<string | null>(null);
+
+  // Build February 2025 calendar grid
+  const DAYS_HEADER = ["S", "M", "T", "W", "T", "F", "S"];
+  const daysInMonth = 28;
+  const startDay = 6; // Feb 1 2025 is Saturday
+  const cells: (number | null)[] = Array(startDay).fill(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  // Map day numbers to date strings that match HISTORY
+  const dayToDateStr = (d: number) => `Feb ${d}`;
+
+  const selectedEntry = selected ? HISTORY_BY_DATE[selected] : null;
+
   return (
-    <Card label="Recent Sessions">
-      <div style={S.historyList}>
-        {HISTORY.slice(0, 4).map((h, i) => (
-          <div key={i} style={S.historyItem}>
-            <div>
-              <div style={S.historyDate}>{h.date}</div>
-              <div style={S.historyBlock}>{h.blockName}</div>
-              <div style={S.historyMeta}>{h.duration} · {h.prs > 0 ? `${h.prs} PR${h.prs > 1 ? "s" : ""}` : "no PRs"}</div>
+    <Card label="February Sessions">
+      <div style={{ flex: 1, overflow: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px", flexShrink: 0 }}>
+          {DAYS_HEADER.map((d, i) => (
+            <div key={`h-${i}`} style={{ textAlign: "center", fontSize: "0.5rem", color: "#555", padding: "1px 0" }}>{d}</div>
+          ))}
+          {cells.map((day, i) => {
+            if (day === null) return <div key={i} />;
+            const dateStr = dayToDateStr(day);
+            const session = HISTORY_BY_DATE[dateStr];
+            const isSelected = selected === dateStr;
+            return (
+              <div
+                key={i}
+                onClick={() => session && setSelected(isSelected ? null : dateStr)}
+                style={{
+                  aspectRatio: "1",
+                  borderRadius: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "0.55rem",
+                  cursor: session ? "pointer" : "default",
+                  background: isSelected
+                    ? "rgba(232,196,104,0.3)"
+                    : session
+                      ? "rgba(232,196,104,0.12)"
+                      : "rgba(255,255,255,0.03)",
+                  border: isSelected
+                    ? "1px solid rgba(232,196,104,0.6)"
+                    : session
+                      ? "1px solid rgba(232,196,104,0.25)"
+                      : "1px solid transparent",
+                  color: session ? "#e8c468" : "#555",
+                  fontWeight: session ? 700 : 400,
+                  transition: "all 0.15s",
+                }}
+              >
+                {day}
+              </div>
+            );
+          })}
+        </div>
+        {selectedEntry && (
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "0.35rem 0 0", display: "flex", flexDirection: "column", gap: "0.15rem", animation: "fadeUp 0.2s ease", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.1rem" }}>
+              <span style={{ fontWeight: 700, fontSize: "0.72rem" }}>{selectedEntry.blockName}</span>
+              <span style={{ fontSize: "0.6rem", color: "#555" }}>{selectedEntry.duration}</span>
+              {selectedEntry.prs > 0 && <span style={{ fontSize: "0.6rem", color: "#e8c468" }}>{selectedEntry.prs} 🏆</span>}
+              <div style={{ marginLeft: "auto" }}><ScoreRing score={selectedEntry.formAvg} size={24} /></div>
             </div>
-            <ScoreRing score={h.formAvg} size={38} />
+            {selectedEntry.exercises?.map((ex, j) => (
+              <div key={j} style={{ display: "flex", fontSize: "0.6rem", gap: "0.2rem" }}>
+                <span style={{ color: "#888" }}>{ex.name}</span>
+                <span style={{ color: "#e8c468", marginLeft: "auto" }}>{ex.detail}</span>
+              </div>
+            ))}
+            {selectedEntry.notes && (
+              <div style={{ fontSize: "0.55rem", color: "#ff9f0a", fontStyle: "italic" }}>📝 {selectedEntry.notes}</div>
+            )}
           </div>
-        ))}
+        )}
       </div>
     </Card>
   );
@@ -505,6 +793,10 @@ function ChatPanel() {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const [plan, setPlan] = useState<PlanType>("strength");
+  const [customExercises, setCustomExercises] = useState<Exercise[]>([]);
+  const workout = getTodayWorkout(plan, customExercises);
+
   return (
     <div style={S.root}>
       <div style={S.bg} />
@@ -516,21 +808,35 @@ export default function DashboardPage() {
         </a>
         <div style={S.headerCenter}>
           <div style={S.headerUser}>Marcus R.</div>
-          <div style={S.headerSub}>Upper A · Week 6</div>
+          <div style={S.headerSub}>{workout.name} · Week 6</div>
+        </div>
+        {/* Plan selector pills */}
+        <div style={S.planPills}>
+          {(["strength", "hypertrophy", "custom"] as PlanType[]).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPlan(p)}
+              style={{ ...S.planPill, ...(plan === p ? S.planPillActive : {}) }}
+            >
+              {p === "strength" ? "💪 Strength" : p === "hypertrophy" ? "🦾 Hypertrophy" : "✏️ Custom"}
+            </button>
+          ))}
         </div>
         <div style={S.streakBadge}>🔥 4</div>
       </header>
 
       {/* Main layout: bento grid + chat */}
       <div style={S.body}>
-        {/* Left: bento grid — 3 cols × 3 rows, fills viewport */}
+        {/* Left: bento grid — 3 cols × 4 rows, fills viewport */}
         <div style={S.grid}>
-          <div style={{ gridColumn: '1 / 3', gridRow: '1 / 3', display: 'flex', overflow: 'hidden', minHeight: 0 }}><WorkoutPanel /></div>
-          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 2', display: 'flex', overflow: 'hidden', minHeight: 0 }}><StatsPanel /></div>
-          <div style={{ gridColumn: '3 / 4', gridRow: '2 / 3', display: 'flex', overflow: 'hidden', minHeight: 0 }}><UpcomingPanel /></div>
-          <div style={{ gridColumn: '1 / 2', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><ConsistencyPanel /></div>
-          <div style={{ gridColumn: '2 / 3', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><QuickLogPanel /></div>
-          <div style={{ gridColumn: '3 / 4', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><HistoryPanel /></div>
+          <div style={{ gridColumn: '1 / 3', gridRow: '1 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><WorkoutPanel workout={workout} /></div>
+          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', display: 'flex', overflow: 'hidden', minHeight: 0 }}><HistoryPanel /></div>
+          <div style={{ gridColumn: '3 / 4', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><UpcomingPanel plan={plan} /></div>
+          <div style={{ gridColumn: '1 / 2', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}><AttendancePanel /></div>
+          <div style={{ gridColumn: '2 / 3', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+            {plan === "custom" ? <CustomBuilderPanel exercises={customExercises} onChange={setCustomExercises} /> : <QuickLogPanel />}
+          </div>
+          <div style={{ gridColumn: '3 / 4', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}><PRTrackerPanel /></div>
         </div>
 
         {/* Right: iMessage chat */}
@@ -610,6 +916,28 @@ const S: Record<string, React.CSSProperties> = {
     color: "#e8c468",
     fontWeight: 600,
   },
+  planPills: {
+    display: "flex",
+    gap: "0.3rem",
+    marginRight: "0.5rem",
+  },
+  planPill: {
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    color: "#888",
+    borderRadius: "16px",
+    padding: "0.25rem 0.65rem",
+    fontSize: "0.68rem",
+    cursor: "pointer",
+    fontFamily: "'DM Sans', sans-serif",
+    transition: "all 0.15s",
+    whiteSpace: "nowrap",
+  },
+  planPillActive: {
+    background: "rgba(232,196,104,0.12)",
+    border: "1px solid rgba(232,196,104,0.4)",
+    color: "#e8c468",
+  },
 
   // ── Body layout ──
   body: {
@@ -626,7 +954,7 @@ const S: Record<string, React.CSSProperties> = {
     flex: 1,
     display: "grid",
     gridTemplateColumns: "1fr 1fr 1fr",
-    gridTemplateRows: "1.8fr 1fr 0.8fr",
+    gridTemplateRows: "1.2fr 1fr 0.8fr 0.7fr",
     gap: "0.5rem",
     padding: "0.5rem",
     overflow: "hidden",
