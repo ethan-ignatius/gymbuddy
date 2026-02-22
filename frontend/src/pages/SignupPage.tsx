@@ -26,6 +26,9 @@ export default function SignupPage() {
     if (!res.ok) {
       throw new Error(data.message ?? data.error ?? `Request failed: ${res.status}`);
     }
+    if (data.user) {
+      localStorage.setItem("gymbuddyUser", JSON.stringify(data.user));
+    }
     setCalendarAuthUrl(data.calendarAuthUrl);
   };
 

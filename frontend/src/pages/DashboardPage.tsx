@@ -32,6 +32,65 @@ interface ChatMessage {
   role: "user" | "ai";
   text: string;
   time: string;
+  citations?: Array<{ source: string; page: number | null }>;
+  ragSource?: string;
+  usedRag?: boolean;
+}
+
+interface LiveWorkoutProgress {
+  percent: number;
+  doneSets: number;
+  totalSets: number;
+  exercises: Array<{ name: string; detail: string }>;
+}
+
+interface DashboardApiData {
+  user: {
+    id: string;
+    email: string;
+    goal: "lose_fat" | "strength_and_size" | "strength_without_size";
+    heightCm: number;
+    weightKg: number;
+    gymTravelMin: number;
+    preferredDays: string | null;
+    preferredTime: string | null;
+    onboardingStep: string;
+  };
+  plan: {
+    daysPerWeek: number;
+    blocks: Array<{
+      name: string;
+      focus: string;
+      exercises: Array<{ name: string; sets: number; reps: string }>;
+    }>;
+  };
+  todayWorkout: {
+    name: string;
+    day: string;
+    focus: string;
+    exercises: Array<{ name: string; sets: number; reps: string }>;
+  } | null;
+  upcoming: Array<{
+    id: string;
+    name: string;
+    day: string;
+    date: string;
+    time: string;
+    status: string;
+  }>;
+  history: Array<{
+    id: string;
+    date: string;
+    blockName: string;
+    durationMin: number;
+    status: string;
+    formAvg: number;
+    prs: number;
+    notes: string | null;
+    exercises: Array<{ name: string; detail: string }>;
+  }>;
+  attendance: { last28: number[] };
+  recentPRs: Array<{ exercise: string; weight: number | null; date: string }>;
 }
 
 // ─── Mock Data ─────────────────────────────────────────────────────────────────
@@ -153,35 +212,104 @@ const HISTORY: HistoryEntry[] = [
   },
 ];
 
-
-const CONSISTENCY = [1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0];
-
 // Map history dates to a calendar lookup
 const HISTORY_BY_DATE: Record<string, HistoryEntry> = {};
 HISTORY.forEach((h) => { HISTORY_BY_DATE[h.date] = h; });
 
-function getUpcoming(plan: PlanType) {
-  if (plan === "strength") {
-    return [
-      { day: "Mon", date: "Feb 24", name: STRENGTH_DAYS[0].name, time: "7:00 AM" },
-      { day: "Wed", date: "Feb 26", name: STRENGTH_DAYS[1].name, time: "7:00 AM" },
-      { day: "Fri", date: "Feb 28", name: STRENGTH_DAYS[2].name, time: "7:00 AM" },
-    ];
+function getUpcoming(
+  plan: PlanType,
+  planBlocks?: Array<{ name: string; exercises: Exercise[] }>,
+  count = 12,
+) {
+  const fallbackBlocks =
+    plan === "strength"
+      ? STRENGTH_DAYS.map((d) => ({ name: d.name, exercises: d.exercises }))
+      : HYPERTROPHY_DAYS.map((d) => ({ name: d.name, exercises: d.exercises }));
+  const blocks = (planBlocks && planBlocks.length > 0 ? planBlocks : fallbackBlocks).map((b) => b.name);
+  const results: Array<{ day: string; date: string; name: string; time: string }> = [];
+  const allowedWeekdays =
+    plan === "strength" ? new Set([1, 3, 5]) : new Set([1, 2, 3, 4, 5, 6]); // Mon/Wed/Fri vs Mon-Sat
+
+  let cursor = new Date();
+  cursor.setHours(0, 0, 0, 0);
+  let blockIdx = 0;
+  let guard = 0;
+
+  while (results.length < count && guard < 120) {
+    guard += 1;
+    const wd = cursor.getDay();
+    if (allowedWeekdays.has(wd)) {
+      results.push({
+        day: cursor.toLocaleDateString("en-US", { weekday: "short" }),
+        date: cursor.toLocaleDateString("en-US", { month: "numeric", day: "numeric" }),
+        name: blocks[blockIdx % blocks.length] ?? "Workout",
+        time: plan === "strength" ? "7:00 AM" : wd === 6 ? "8:00 AM" : "7:00 AM",
+      });
+      blockIdx += 1;
+    }
+    cursor.setDate(cursor.getDate() + 1);
   }
-  // PPL: 6 days on, 1 rest
-  return [
-    { day: "Mon", date: "Feb 24", name: "Push", time: "7:00 AM" },
-    { day: "Tue", date: "Feb 25", name: "Pull", time: "7:00 AM" },
-    { day: "Wed", date: "Feb 26", name: "Legs", time: "7:00 AM" },
-    { day: "Thu", date: "Feb 27", name: "Push", time: "7:00 AM" },
-    { day: "Fri", date: "Feb 28", name: "Pull", time: "7:00 AM" },
-    { day: "Sat", date: "Mar 1", name: "Legs", time: "8:00 AM" },
-  ];
+
+  return results;
 }
 
 const INITIAL_MESSAGES: ChatMessage[] = [
   { role: "ai", text: "Hey! I'm watching your form and tracking your progress. Ask me about weights, substitutions, or anything.", time: "now" },
 ];
+
+function goalToPlanType(goal?: string): PlanType {
+  if (goal === "strength_without_size") return "strength";
+  if (goal === "strength_and_size") return "hypertrophy";
+  if (goal === "lose_fat") return "hypertrophy";
+  return "strength";
+}
+
+function mapApiWorkoutToBlock(
+  apiWorkout: DashboardApiData["todayWorkout"] | null
+): WorkoutBlock | null {
+  if (!apiWorkout) return null;
+  return {
+    name: apiWorkout.name,
+    day: apiWorkout.day,
+    focus: apiWorkout.focus,
+    exercises: apiWorkout.exercises.map((e) => ({
+      name: e.name,
+      sets: e.sets,
+      reps: e.reps,
+    })),
+  };
+}
+
+function formatShortDate(dateIso: string): string {
+  const d = new Date(dateIso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatNumericDate(dateIso: string): string {
+  const d = new Date(dateIso);
+  return d.toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
+}
+
+function formatHeaderName(email?: string): string {
+  if (!email) return "GymBuddy User";
+  const base = email.split("@")[0] || email;
+  const parts = base.split(/[._-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    const first = parts[0][0].toUpperCase() + parts[0].slice(1);
+    const lastInitial = parts[1][0].toUpperCase();
+    return `${first} ${lastInitial}.`;
+  }
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+function computeStreak(days: number[]): number {
+  let streak = 0;
+  for (let i = days.length - 1; i >= 0; i--) {
+    if (!days[i]) break;
+    streak++;
+  }
+  return streak;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -253,11 +381,26 @@ function Card({ children, style, label }: { children: React.ReactNode; style?: R
 
 // ─── Panel: Today's Workout ───────────────────────────────────────────────────
 
-function WorkoutPanel({ workout }: { workout: WorkoutBlock }) {
+function WorkoutPanel({
+  workout,
+  onCompletionChange,
+  onProgressChange,
+}: {
+  workout: WorkoutBlock;
+  onCompletionChange?: (isComplete: boolean) => void;
+  onProgressChange?: (progress: LiveWorkoutProgress) => void;
+}) {
   const [completedSets, setCompletedSets] = useState<Record<string, boolean[]>>({});
   const [restTimer, setRestTimer] = useState<number | null>(null);
   const [restActive, setRestActive] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    setCompletedSets({});
+    if (timerRef.current) clearInterval(timerRef.current);
+    setRestTimer(null);
+    setRestActive(false);
+  }, [workout.name, workout.day, workout.exercises.length]);
 
   const startRest = (secs: number) => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -289,6 +432,28 @@ function WorkoutPanel({ workout }: { workout: WorkoutBlock }) {
   const totalSets = workout.exercises.reduce((a, e) => a + e.sets, 0);
   const doneSets = Object.values(completedSets).flat().filter(Boolean).length;
   const pct = totalSets > 0 ? Math.round((doneSets / totalSets) * 100) : 0;
+  const isWorkoutComplete = totalSets > 0 && doneSets === totalSets;
+
+  useEffect(() => {
+    onCompletionChange?.(isWorkoutComplete);
+  }, [isWorkoutComplete, onCompletionChange]);
+
+  useEffect(() => {
+    const exercises = workout.exercises.map((ex, exIdx) => {
+      const sets = completedSets[String(exIdx)] ?? Array(ex.sets).fill(false);
+      const done = sets.filter(Boolean).length;
+      return {
+        name: ex.name,
+        detail: `${done}/${ex.sets} sets done · target ${ex.sets}×${ex.reps}`,
+      };
+    });
+    onProgressChange?.({
+      percent: pct,
+      doneSets,
+      totalSets,
+      exercises,
+    });
+  }, [completedSets, workout, pct, doneSets, totalSets, onProgressChange]);
 
   if (workout.exercises.length === 0) {
     return (
@@ -441,18 +606,27 @@ const RECENT_PRS = [
   { exercise: "RDL", weight: 175, date: "Feb 5" },
 ];
 
-function PRTrackerPanel() {
+function PRTrackerPanel({ prs }: { prs?: Array<{ exercise: string; weight: number | null; date: string }> }) {
+  const items = prs ?? RECENT_PRS;
   return (
     <Card label="Personal Records">
       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", overflow: "auto", flex: 1, minHeight: 0 }}>
-        {RECENT_PRS.map((pr, i) => (
+        {items.length === 0 && (
+          <div style={{ fontSize: "0.7rem", color: "#555", padding: "0.25rem 0.1rem" }}>
+            No PRs logged yet.
+          </div>
+        )}
+        {items.map((pr, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.35rem", background: "rgba(232,196,104,0.06)", borderRadius: "6px", padding: "0.25rem 0.4rem" }}>
             <span style={{ fontSize: "0.7rem" }}>🏆</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: "0.7rem", fontWeight: 600 }}>{pr.exercise}</div>
               <div style={{ fontSize: "0.55rem", color: "#555" }}>{pr.date}</div>
             </div>
-            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "0.95rem", color: "#e8c468" }}>{pr.weight}<span style={{ fontSize: "0.55rem", color: "#555" }}> lbs</span></span>
+            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "0.95rem", color: "#e8c468" }}>
+              {pr.weight ?? "--"}
+              <span style={{ fontSize: "0.55rem", color: "#555" }}>{pr.weight != null ? " lbs" : ""}</span>
+            </span>
           </div>
         ))}
       </div>
@@ -462,12 +636,29 @@ function PRTrackerPanel() {
 
 // ─── Panel: Upcoming (Calendar-synced) ────────────────────────────────────────
 
-function UpcomingPanel({ plan }: { plan: PlanType }) {
+function UpcomingPanel({
+  plan,
+  upcomingData,
+  planBlocks,
+}: {
+  plan: PlanType;
+  upcomingData?: Array<{ day: string; date: string; name: string; time: string }>;
+  planBlocks?: Array<{ name: string; exercises: Exercise[] }>;
+}) {
   const [expanded, setExpanded] = useState<number | null>(null);
-  const upcoming = getUpcoming(plan);
+  const realUpcoming = upcomingData ?? [];
+  const projectedUpcoming = getUpcoming(plan, planBlocks, 14);
+  const seen = new Set(realUpcoming.map((u) => `${u.date}|${u.name}|${u.time}`));
+  const filler = projectedUpcoming.filter((u) => {
+    const key = `${u.date}|${u.name}|${u.time}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const upcoming = [...realUpcoming, ...filler].slice(0, 12);
   // Map upcoming names to preset exercises for preview
   const getPreview = (name: string) => {
-    const all = [...STRENGTH_DAYS, ...HYPERTROPHY_DAYS];
+    const all = planBlocks && planBlocks.length > 0 ? planBlocks : [...STRENGTH_DAYS, ...HYPERTROPHY_DAYS];
     const match = all.find((d) => d.name === name);
     return match?.exercises ?? [];
   };
@@ -475,6 +666,11 @@ function UpcomingPanel({ plan }: { plan: PlanType }) {
   return (
     <Card label="Upcoming">
       <div style={{ ...S.upcomingList, overflow: "auto" }}>
+        {upcoming.length === 0 && (
+          <div style={{ fontSize: "0.7rem", color: "#555", padding: "0.35rem 0.4rem" }}>
+            No upcoming workouts scheduled yet.
+          </div>
+        )}
         {upcoming.map((u, i) => (
           <div key={i}>
             <div
@@ -482,7 +678,10 @@ function UpcomingPanel({ plan }: { plan: PlanType }) {
               onClick={() => setExpanded(expanded === i ? null : i)}
             >
               <span style={{ fontSize: "0.7rem" }}>📅</span>
-              <div style={S.upcomingDay}>{u.day}</div>
+              <div style={{ display: "flex", flexDirection: "column", width: "42px", lineHeight: 1.05 }}>
+                <div style={{ fontSize: "0.65rem", color: "#e8c468", fontWeight: 700 }}>{u.date}</div>
+                <div style={S.upcomingDay}>{u.day}</div>
+              </div>
               <div style={S.upcomingName}>{u.name}</div>
               <div style={S.upcomingTime}>{u.time}</div>
               <span style={{ color: "#555", fontSize: "0.55rem" }}>{expanded === i ? "▲" : "▼"}</span>
@@ -510,18 +709,24 @@ function UpcomingPanel({ plan }: { plan: PlanType }) {
 
 // ─── Panel: Attendance ────────────────────────────────────────────────────────
 
-function AttendancePanel() {
-  const attended = CONSISTENCY.filter(Boolean).length;
-  const pct = Math.round((attended / CONSISTENCY.length) * 100);
+function AttendancePanel({ consistency }: { consistency?: number[] }) {
+  const days = consistency ?? [];
+  const attended = days.filter(Boolean).length;
+  const pct = days.length ? Math.round((attended / days.length) * 100) : 0;
 
   return (
     <Card label="Attendance · 4 wks">
       <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
         <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", color: "#e8c468" }}>{pct}%</span>
-        <span style={{ fontSize: "0.65rem", color: "#555" }}>{attended}/{CONSISTENCY.length} days</span>
+        <span style={{ fontSize: "0.65rem", color: "#555" }}>{attended}/{days.length} days</span>
       </div>
       <div style={{ display: "flex", gap: "2px", flexWrap: "wrap" }}>
-        {CONSISTENCY.map((v, i) => (
+        {days.length === 0 && (
+          <div style={{ fontSize: "0.65rem", color: "#555", padding: "0.2rem 0" }}>
+            No attendance history yet.
+          </div>
+        )}
+        {days.map((v, i) => (
           <div
             key={i}
             title={v ? "Gym" : "Rest"}
@@ -615,24 +820,56 @@ function QuickLogPanel() {
 
 // ─── Panel: Session Calendar Grid ─────────────────────────────────────────────
 
-function HistoryPanel() {
+function HistoryPanel({
+  historyEntries,
+  highlightedDates,
+  liveEntry,
+  autoSelectDate,
+}: {
+  historyEntries?: HistoryEntry[];
+  highlightedDates?: string[];
+  liveEntry?: HistoryEntry | null;
+  autoSelectDate?: string | null;
+}) {
   const [selected, setSelected] = useState<string | null>(null);
+  const entries = historyEntries ?? [];
+  const mergedEntries = [...entries];
+  if (liveEntry) {
+    const idx = mergedEntries.findIndex((e) => e.date === liveEntry.date);
+    if (idx >= 0) mergedEntries[idx] = liveEntry;
+    else mergedEntries.unshift(liveEntry);
+  }
+  const historyByDate: Record<string, HistoryEntry> = {};
+  mergedEntries.forEach((h) => {
+    historyByDate[h.date] = h;
+  });
+  const highlighted = new Set(highlightedDates ?? []);
+  useEffect(() => {
+    if (autoSelectDate) setSelected(autoSelectDate);
+  }, [autoSelectDate]);
 
-  // Build February 2025 calendar grid
+  const parsedDates = mergedEntries
+    .map((h) => new Date(h.date))
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => b.getTime() - a.getTime());
+  const basis = parsedDates[0] ?? new Date();
+  const month = basis.getMonth();
+  const year = basis.getFullYear();
+
   const DAYS_HEADER = ["S", "M", "T", "W", "T", "F", "S"];
-  const daysInMonth = 28;
-  const startDay = 6; // Feb 1 2025 is Saturday
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startDay = new Date(year, month, 1).getDay();
   const cells: (number | null)[] = Array(startDay).fill(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
 
-  // Map day numbers to date strings that match HISTORY
-  const dayToDateStr = (d: number) => `Feb ${d}`;
-
-  const selectedEntry = selected ? HISTORY_BY_DATE[selected] : null;
+  const dayToDateStr = (d: number) =>
+    new Date(year, month, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const selectedEntry = selected ? historyByDate[selected] : null;
+  const monthLabel = new Date(year, month, 1).toLocaleDateString("en-US", { month: "long" });
 
   return (
-    <Card label="February Sessions">
+    <Card label={`${monthLabel} Sessions`}>
       <div style={{ flex: 1, overflow: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px", flexShrink: 0 }}>
           {DAYS_HEADER.map((d, i) => (
@@ -641,7 +878,8 @@ function HistoryPanel() {
           {cells.map((day, i) => {
             if (day === null) return <div key={i} />;
             const dateStr = dayToDateStr(day);
-            const session = HISTORY_BY_DATE[dateStr];
+            const session = historyByDate[dateStr];
+            const isHighlighted = Boolean(session) || highlighted.has(dateStr);
             const isSelected = selected === dateStr;
             return (
               <div
@@ -655,18 +893,10 @@ function HistoryPanel() {
                   justifyContent: "center",
                   fontSize: "0.55rem",
                   cursor: session ? "pointer" : "default",
-                  background: isSelected
-                    ? "rgba(232,196,104,0.3)"
-                    : session
-                      ? "rgba(232,196,104,0.12)"
-                      : "rgba(255,255,255,0.03)",
-                  border: isSelected
-                    ? "1px solid rgba(232,196,104,0.6)"
-                    : session
-                      ? "1px solid rgba(232,196,104,0.25)"
-                      : "1px solid transparent",
-                  color: session ? "#e8c468" : "#555",
-                  fontWeight: session ? 700 : 400,
+                  background: isSelected ? "rgba(232,196,104,0.3)" : isHighlighted ? "rgba(232,196,104,0.12)" : "rgba(255,255,255,0.03)",
+                  border: isSelected ? "1px solid rgba(232,196,104,0.6)" : isHighlighted ? "1px solid rgba(232,196,104,0.25)" : "1px solid transparent",
+                  color: isHighlighted ? "#e8c468" : "#555",
+                  fontWeight: isHighlighted ? 700 : 400,
                   transition: "all 0.15s",
                 }}
               >
@@ -675,13 +905,18 @@ function HistoryPanel() {
             );
           })}
         </div>
+        {mergedEntries.length === 0 && (
+          <div style={{ fontSize: "0.65rem", color: "#555", padding: "0.2rem 0.1rem" }}>
+            No session history yet.
+          </div>
+        )}
         {selectedEntry && (
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "0.35rem 0 0", display: "flex", flexDirection: "column", gap: "0.15rem", animation: "fadeUp 0.2s ease", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.1rem" }}>
               <span style={{ fontWeight: 700, fontSize: "0.72rem" }}>{selectedEntry.blockName}</span>
               <span style={{ fontSize: "0.6rem", color: "#555" }}>{selectedEntry.duration}</span>
-              {selectedEntry.prs > 0 && <span style={{ fontSize: "0.6rem", color: "#e8c468" }}>{selectedEntry.prs} 🏆</span>}
-              <div style={{ marginLeft: "auto" }}><ScoreRing score={selectedEntry.formAvg} size={24} /></div>
+              {selectedEntry.prs > 0 && <span style={{ fontSize: "0.6rem", color: "#e8c468" }}>{selectedEntry.prs} PRs</span>}
+              {selectedEntry.formAvg > 0 && <div style={{ marginLeft: "auto" }}><ScoreRing score={selectedEntry.formAvg} size={24} /></div>}
             </div>
             {selectedEntry.exercises?.map((ex, j) => (
               <div key={j} style={{ display: "flex", fontSize: "0.6rem", gap: "0.2rem" }}>
@@ -690,7 +925,7 @@ function HistoryPanel() {
               </div>
             ))}
             {selectedEntry.notes && (
-              <div style={{ fontSize: "0.55rem", color: "#ff9f0a", fontStyle: "italic" }}>📝 {selectedEntry.notes}</div>
+              <div style={{ fontSize: "0.55rem", color: "#ff9f0a", fontStyle: "italic" }}>{selectedEntry.notes}</div>
             )}
           </div>
         )}
@@ -699,7 +934,7 @@ function HistoryPanel() {
   );
 }
 
-// ─── iMessage-Style Chat ──────────────────────────────────────────────────────
+// --- iMessage-Style Chat ──────────────────────────────────────────────────────
 
 function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
@@ -711,17 +946,45 @@ function ChatPanel() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, thinking]);
 
-  const send = () => {
+  const send = async () => {
     const text = input.trim();
     if (!text) return;
     const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     setMessages((prev) => [...prev, { role: "user", text, time }]);
     setInput("");
     setThinking(true);
-    setTimeout(() => {
+
+    try {
+      const saved = localStorage.getItem("gymbuddyUser");
+      const user = saved ? JSON.parse(saved) as { id?: string; email?: string } : null;
+      const res = await fetch("/api/chat/dashboard-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          userId: user?.id,
+          email: user?.email,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? data.error ?? `Request failed: ${res.status}`);
+      setThinking(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          text: data.reply || getAIResponse(text),
+          time,
+          citations: Array.isArray(data.ragHits) ? data.ragHits : undefined,
+          ragSource: typeof data.ragSource === "string" ? data.ragSource : undefined,
+          usedRag: Boolean(data.usedRag),
+        },
+      ]);
+    } catch (err) {
+      console.error("Dashboard chat failed:", err);
       setThinking(false);
       setMessages((prev) => [...prev, { role: "ai", text: getAIResponse(text), time }]);
-    }, 900 + Math.random() * 600);
+    }
   };
 
   const QUICK = ["What weight?", "My knee hurts", "How's my form?", "Rest time?"];
@@ -747,6 +1010,20 @@ function ChatPanel() {
             {m.role === "ai" && <div style={S.msgAvatar}>GB</div>}
             <div style={{ ...S.msgBubble, ...(m.role === "user" ? S.msgBubbleUser : S.msgBubbleAI) }}>
               {m.text}
+              {m.role === "ai" && m.usedRag && m.citations && m.citations.length > 0 && (
+                <div style={S.citationWrap}>
+                  <div style={S.citationMeta}>
+                    Source: {m.ragSource === "actian-python" ? "Actian RAG" : "Fallback RAG"}
+                  </div>
+                  <div style={S.citationList}>
+                    {m.citations.slice(0, 3).map((c, idx) => (
+                      <span key={`${c.source}-${c.page}-${idx}`} style={S.citationChip}>
+                        {c.source}{c.page ? ` p.${c.page}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div style={S.msgTime}>{m.time}</div>
             </div>
           </div>
@@ -793,24 +1070,95 @@ function ChatPanel() {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const [dashboard, setDashboard] = useState<DashboardApiData | null>(null);
+  const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [plan, setPlan] = useState<PlanType>("strength");
   const [customExercises, setCustomExercises] = useState<Exercise[]>([]);
-  const workout = getTodayWorkout(plan, customExercises);
+  const [todayWorkoutCompleted, setTodayWorkoutCompleted] = useState(false);
+  const [liveWorkoutProgress, setLiveWorkoutProgress] = useState<LiveWorkoutProgress | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("gymbuddyUser");
+    const user = saved ? JSON.parse(saved) as { id?: string; email?: string; goal?: string } : null;
+    const qs = user?.id
+      ? `userId=${encodeURIComponent(user.id)}`
+      : user?.email
+        ? `email=${encodeURIComponent(user.email)}`
+        : "";
+    if (!qs) {
+      setLoadingDashboard(false);
+      return;
+    }
+
+    fetch(`/api/dashboard-data?${qs}`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.message ?? data.error ?? `Request failed: ${r.status}`);
+        return data;
+      })
+      .then((data) => {
+        setDashboard(data);
+        setPlan(goalToPlanType(data.user?.goal));
+      })
+      .catch((err) => {
+        console.error("Dashboard load failed:", err);
+      })
+      .finally(() => setLoadingDashboard(false));
+  }, []);
+
+  const apiWorkout = mapApiWorkoutToBlock(dashboard?.todayWorkout ?? null);
+  const workout = plan === "custom"
+    ? getTodayWorkout(plan, customExercises)
+    : apiWorkout ?? getTodayWorkout(plan, customExercises);
+
+  const upcomingData = (dashboard?.upcoming ?? []).map((u) => ({
+    day: u.day,
+    date: formatNumericDate(u.date),
+    name: u.name,
+    time: u.time,
+  }));
+  const historyEntries: HistoryEntry[] = (dashboard?.history ?? []).map((h) => ({
+    date: formatShortDate(h.date),
+    blockName: h.blockName,
+    duration: `${h.durationMin}m`,
+    formAvg: h.formAvg,
+    prs: h.prs,
+    notes: h.notes ?? undefined,
+    exercises: h.exercises,
+  }));
+  const consistency = dashboard?.attendance?.last28;
+  const todayCalendarDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const hasTodayProgress = Boolean(liveWorkoutProgress && liveWorkoutProgress.doneSets > 0);
+  const historyHighlightDates = hasTodayProgress || todayWorkoutCompleted ? [todayCalendarDate] : [];
+  const liveHistoryEntry: HistoryEntry | null = hasTodayProgress && liveWorkoutProgress ? {
+    date: todayCalendarDate,
+    blockName: workout.day || workout.name,
+    duration: `${liveWorkoutProgress.percent}% done`,
+    formAvg: 0,
+    prs: 0,
+    notes: `${liveWorkoutProgress.doneSets}/${liveWorkoutProgress.totalSets} total sets completed`,
+    exercises: liveWorkoutProgress.exercises,
+  } : null;
+  const streak = computeStreak(consistency ?? []);
+  const headerName = formatHeaderName(dashboard?.user?.email);
+  const headerSub = loadingDashboard ? "Loading..." : `${workout.name} ? ${dashboard?.plan?.daysPerWeek ?? 0} days/week`;
+  const planBlocks = dashboard?.plan?.blocks?.map((b) => ({
+    name: b.name,
+    exercises: b.exercises.map((e) => ({ name: e.name, sets: e.sets, reps: e.reps })),
+  }));
 
   return (
     <div style={S.root}>
       <div style={S.bg} />
 
-      {/* Top nav */}
       <header style={S.header}>
         <a href="/" style={S.logoLink}>
           <span style={S.logo}>GB</span>
         </a>
         <div style={S.headerCenter}>
-          <div style={S.headerUser}>Marcus R.</div>
-          <div style={S.headerSub}>{workout.name} · Week 6</div>
+          <div style={S.headerUser}>{headerName}</div>
+          <div style={S.headerSub}>{headerSub}</div>
         </div>
-        {/* Plan selector pills */}
         <div style={S.planPills}>
           {(["strength", "hypertrophy", "custom"] as PlanType[]).map((p) => (
             <button
@@ -818,28 +1166,25 @@ export default function DashboardPage() {
               onClick={() => setPlan(p)}
               style={{ ...S.planPill, ...(plan === p ? S.planPillActive : {}) }}
             >
-              {p === "strength" ? "💪 Strength" : p === "hypertrophy" ? "🦾 Hypertrophy" : "✏️ Custom"}
+              {p === "strength" ? "Strength" : p === "hypertrophy" ? "Hypertrophy" : "Custom"}
             </button>
           ))}
         </div>
-        <div style={S.streakBadge}>🔥 4</div>
+        <div style={S.streakBadge}>{streak}</div>
       </header>
 
-      {/* Main layout: bento grid + chat */}
       <div style={S.body}>
-        {/* Left: bento grid — 3 cols × 4 rows, fills viewport */}
         <div style={S.grid}>
-          <div style={{ gridColumn: '1 / 3', gridRow: '1 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><WorkoutPanel workout={workout} /></div>
-          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', display: 'flex', overflow: 'hidden', minHeight: 0 }}><HistoryPanel /></div>
-          <div style={{ gridColumn: '3 / 4', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><UpcomingPanel plan={plan} /></div>
-          <div style={{ gridColumn: '1 / 2', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}><AttendancePanel /></div>
+          <div style={{ gridColumn: '1 / 3', gridRow: '1 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><WorkoutPanel workout={workout} onCompletionChange={setTodayWorkoutCompleted} onProgressChange={setLiveWorkoutProgress} /></div>
+          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', display: 'flex', overflow: 'hidden', minHeight: 0 }}><HistoryPanel historyEntries={historyEntries} highlightedDates={historyHighlightDates} liveEntry={liveHistoryEntry} autoSelectDate={hasTodayProgress ? todayCalendarDate : null} /></div>
+          <div style={{ gridColumn: '3 / 4', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><UpcomingPanel plan={plan} upcomingData={upcomingData} planBlocks={planBlocks} /></div>
+          <div style={{ gridColumn: '1 / 2', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}><AttendancePanel consistency={consistency} /></div>
           <div style={{ gridColumn: '2 / 3', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}>
             {plan === "custom" ? <CustomBuilderPanel exercises={customExercises} onChange={setCustomExercises} /> : <QuickLogPanel />}
           </div>
-          <div style={{ gridColumn: '3 / 4', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}><PRTrackerPanel /></div>
+          <div style={{ gridColumn: '3 / 4', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}><PRTrackerPanel prs={dashboard?.recentPRs} /></div>
         </div>
 
-        {/* Right: iMessage chat */}
         <ChatPanel />
       </div>
 
@@ -848,7 +1193,7 @@ export default function DashboardPage() {
   );
 }
 
-// ─── Global CSS ───────────────────────────────────────────────────────────────
+// --- Global CSS ───────────────────────────────────────────────────────────────
 
 const globalCss = `
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
@@ -1299,6 +1644,24 @@ const S: Record<string, React.CSSProperties> = {
     borderBottomRightRadius: "4px",
   },
   msgTime: { fontSize: "0.55rem", opacity: 0.5, marginTop: "0.2rem" },
+  citationWrap: {
+    marginTop: "0.35rem",
+    paddingTop: "0.3rem",
+    borderTop: "1px solid rgba(255,255,255,0.08)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.2rem",
+  },
+  citationMeta: { fontSize: "0.52rem", color: "#888" },
+  citationList: { display: "flex", flexWrap: "wrap", gap: "0.2rem" },
+  citationChip: {
+    fontSize: "0.5rem",
+    color: "#e8c468",
+    border: "1px solid rgba(232,196,104,0.25)",
+    background: "rgba(232,196,104,0.06)",
+    borderRadius: "999px",
+    padding: "0.08rem 0.3rem",
+  },
 
   quickRow: {
     display: "flex",

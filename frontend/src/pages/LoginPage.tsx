@@ -26,6 +26,9 @@ export default function LoginPage() {
                 throw new Error(data.message ?? data.error ?? `Request failed: ${res.status}`);
             }
 
+            if (data.user) {
+                localStorage.setItem("gymbuddyUser", JSON.stringify(data.user));
+            }
             navigate("/dashboard");
         } catch (err) {
             setError(err instanceof Error ? err.message : "Something went wrong");
