@@ -150,6 +150,44 @@ class HealthRagStore:
             distance_metric=DistanceMetric.COSINE,
         )
 
+    def index_pdfs_manifest_only(self) -> int:
+        """Build .rag_manifest.json from PDFs without Actian/OpenAI. Chat fallback uses this."""
+        if PdfReader is None:
+            raise RuntimeError("pypdf not installed. Run: pip install pypdf")
+
+        pdf_dir = self._cfg.pdf_dir
+        pdf_dir.mkdir(parents=True, exist_ok=True)
+        pdf_paths = sorted(p for p in pdf_dir.glob("*.pdf") if p.is_file())
+        if not pdf_paths:
+            return 0
+
+        total_chunks = 0
+        manifest: dict[str, dict] = {}
+        for pdf_path in pdf_paths:
+            base_id = int(hashlib.md5(str(pdf_path).encode()).hexdigest()[:8], 16)
+            for page_no, page_text in _iter_pdf_texts(pdf_path):
+                chunks = _chunk_text(page_text)
+                if not chunks:
+                    continue
+                ids = [base_id * 10_000 + page_no * 100 + i for i in range(len(chunks))]
+                payloads = [
+                    {
+                        "text": chunk,
+                        "source": pdf_path.name,
+                        "page": page_no,
+                        "chunk": i,
+                    }
+                    for i, chunk in enumerate(chunks)
+                ]
+                for idx, payload in zip(ids, payloads):
+                    manifest[str(idx)] = payload
+                total_chunks += len(chunks)
+        self._cfg.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._cfg.manifest_path.open("w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=True)
+        self._manifest_cache = manifest
+        return total_chunks
+
     def index_pdfs(self) -> int:
         if not self.is_available or PdfReader is None:
             raise RuntimeError("RAG dependencies missing. Check requirements and API keys.")

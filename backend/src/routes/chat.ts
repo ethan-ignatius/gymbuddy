@@ -29,7 +29,7 @@ async function loadRagManifest(): Promise<Record<string, RagChunk>> {
   if (ragManifestCache) return ragManifestCache;
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
-  const manifestPath = path.resolve(__dirname, "../../health_pdfs/.rag_manifest.json");
+  const manifestPath = path.resolve(__dirname, "../../../health_pdfs/.rag_manifest.json");
   const raw = await fs.readFile(manifestPath, "utf8");
   ragManifestCache = JSON.parse(raw) as Record<string, RagChunk>;
   return ragManifestCache;

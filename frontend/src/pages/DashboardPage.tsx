@@ -913,17 +913,26 @@ function QuickLogPanel() {
 
 // ─── Panel: Session Calendar Grid ─────────────────────────────────────────────
 
+function toDateStr(d: Date): string {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 function HistoryPanel({
   historyEntries,
   highlightedDates,
   liveEntry,
   autoSelectDate,
+  todayWorkout,
 }: {
   historyEntries?: HistoryEntry[];
   highlightedDates?: string[];
   liveEntry?: HistoryEntry | null;
   autoSelectDate?: string | null;
+  todayWorkout?: WorkoutBlock | null;
 }) {
+  const now = new Date();
+  const [viewMonth, setViewMonth] = useState(now.getMonth());
+  const [viewYear, setViewYear] = useState(now.getFullYear());
   const [selected, setSelected] = useState<string | null>(null);
   const entries = historyEntries ?? [];
   const mergedEntries = [...entries];
@@ -937,18 +946,15 @@ function HistoryPanel({
     historyByDate[h.date] = h;
   });
   const highlighted = new Set(highlightedDates ?? []);
+  const todayStr = toDateStr(now);
+  highlighted.add(todayStr);
+
   useEffect(() => {
-    if (autoSelectDate) setSelected(autoSelectDate);
-  }, [autoSelectDate]);
+    setSelected(autoSelectDate ?? todayStr);
+  }, [autoSelectDate, todayStr]);
 
-  const parsedDates = mergedEntries
-    .map((h) => new Date(h.date))
-    .filter((d) => !Number.isNaN(d.getTime()))
-    .sort((a, b) => b.getTime() - a.getTime());
-  const basis = parsedDates[0] ?? new Date();
-  const month = basis.getMonth();
-  const year = basis.getFullYear();
-
+  const month = viewMonth;
+  const year = viewYear;
   const DAYS_HEADER = ["S", "M", "T", "W", "T", "F", "S"];
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const startDay = new Date(year, month, 1).getDay();
@@ -959,11 +965,35 @@ function HistoryPanel({
   const dayToDateStr = (d: number) =>
     new Date(year, month, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const selectedEntry = selected ? historyByDate[selected] : null;
+  const isTodaySelected = selected === todayStr;
+  const showTodayPreview = isTodaySelected && !selectedEntry && todayWorkout;
+  const displayEntry = selectedEntry ?? (showTodayPreview ? {
+    date: todayStr,
+    blockName: todayWorkout!.name,
+    duration: todayWorkout!.focus,
+    formAvg: 0,
+    prs: 0,
+    notes: `${todayWorkout!.exercises.length} exercises · ${todayWorkout!.exercises.reduce((a, e) => a + e.sets, 0)} sets`,
+    exercises: todayWorkout!.exercises.map((e) => ({ name: e.name, detail: `${e.sets}×${e.reps}` })),
+  } : null);
   const monthLabel = new Date(year, month, 1).toLocaleDateString("en-US", { month: "long" });
 
+  const goPrev = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
+    else setViewMonth((m) => m - 1);
+  };
+  const goNext = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear((y) => y + 1); }
+    else setViewMonth((m) => m + 1);
+  };
   return (
     <Card label={`${monthLabel} Sessions`}>
       <div style={{ flex: 1, overflow: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.25rem", flexShrink: 0 }}>
+          <button type="button" onClick={goPrev} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", color: "#f0ede6", padding: "2px 6px", fontSize: "0.6rem", cursor: "pointer" }}>‹</button>
+          <span style={{ fontSize: "0.65rem", fontWeight: 600 }}>{monthLabel} {year}</span>
+          <button type="button" onClick={goNext} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", color: "#f0ede6", padding: "2px 6px", fontSize: "0.6rem", cursor: "pointer" }}>›</button>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px", flexShrink: 0 }}>
           {DAYS_HEADER.map((d, i) => (
             <div key={`h-${i}`} style={{ textAlign: "center", fontSize: "0.5rem", color: "#555", padding: "1px 0" }}>{d}</div>
@@ -972,12 +1002,14 @@ function HistoryPanel({
             if (day === null) return <div key={i} />;
             const dateStr = dayToDateStr(day);
             const session = historyByDate[dateStr];
+            const isToday = dateStr === todayStr;
             const isHighlighted = Boolean(session) || highlighted.has(dateStr);
             const isSelected = selected === dateStr;
+            const isClickable = Boolean(session) || isToday;
             return (
               <div
                 key={i}
-                onClick={() => session && setSelected(isSelected ? null : dateStr)}
+                onClick={() => isClickable && setSelected(isSelected ? null : dateStr)}
                 style={{
                   aspectRatio: "1",
                   borderRadius: "4px",
@@ -986,7 +1018,7 @@ function HistoryPanel({
                   justifyContent: "center",
                   position: "relative",
                   fontSize: "0.55rem",
-                  cursor: session ? "pointer" : "default",
+                  cursor: isClickable ? "pointer" : "default",
                   background: isSelected ? "rgba(232,196,104,0.3)" : isHighlighted ? "rgba(232,196,104,0.12)" : "rgba(255,255,255,0.03)",
                   border: isSelected ? "1px solid rgba(232,196,104,0.6)" : isHighlighted ? "1px solid rgba(232,196,104,0.25)" : "1px solid transparent",
                   color: isHighlighted ? "#e8c468" : "#555",
@@ -1019,27 +1051,27 @@ function HistoryPanel({
             );
           })}
         </div>
-        {mergedEntries.length === 0 && (
+        {mergedEntries.length === 0 && !displayEntry && (
           <div style={{ fontSize: "0.65rem", color: "#555", padding: "0.2rem 0.1rem" }}>
             No session history yet.
           </div>
         )}
-        {selectedEntry && (
+        {displayEntry && (
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "0.35rem 0 0", display: "flex", flexDirection: "column", gap: "0.15rem", animation: "fadeUp 0.2s ease", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.1rem" }}>
-              <span style={{ fontWeight: 700, fontSize: "0.72rem" }}>{selectedEntry.blockName}</span>
-              <span style={{ fontSize: "0.6rem", color: "#555" }}>{selectedEntry.duration}</span>
-              {selectedEntry.prs > 0 && <span style={{ fontSize: "0.6rem", color: "#e8c468" }}>{selectedEntry.prs} PRs</span>}
-              {selectedEntry.formAvg > 0 && <div style={{ marginLeft: "auto" }}><ScoreRing score={selectedEntry.formAvg} size={24} /></div>}
+              <span style={{ fontWeight: 700, fontSize: "0.72rem" }}>{displayEntry.blockName}</span>
+              <span style={{ fontSize: "0.6rem", color: "#555" }}>{displayEntry.duration}</span>
+              {displayEntry.prs > 0 && <span style={{ fontSize: "0.6rem", color: "#e8c468" }}>{displayEntry.prs} PRs</span>}
+              {displayEntry.formAvg > 0 && <div style={{ marginLeft: "auto" }}><ScoreRing score={displayEntry.formAvg} size={24} /></div>}
             </div>
-            {selectedEntry.exercises?.map((ex, j) => (
+            {displayEntry.exercises?.map((ex, j) => (
               <div key={j} style={{ display: "flex", fontSize: "0.6rem", gap: "0.2rem" }}>
                 <span style={{ color: "#888" }}>{ex.name}</span>
                 <span style={{ color: "#e8c468", marginLeft: "auto" }}>{ex.detail}</span>
               </div>
             ))}
-            {selectedEntry.notes && (
-              <div style={{ fontSize: "0.55rem", color: "#ff9f0a", fontStyle: "italic" }}>{selectedEntry.notes}</div>
+            {displayEntry.notes && (
+              <div style={{ fontSize: "0.55rem", color: "#ff9f0a", fontStyle: "italic" }}>{displayEntry.notes}</div>
             )}
           </div>
         )}
@@ -1243,7 +1275,7 @@ export default function DashboardPage() {
   const consistency = dashboard?.attendance?.last28;
   const todayCalendarDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const hasTodayProgress = Boolean(liveWorkoutProgress && liveWorkoutProgress.doneSets > 0);
-  const historyHighlightDates = hasTodayProgress || todayWorkoutCompleted ? [todayCalendarDate] : [];
+  const historyHighlightDates = [todayCalendarDate];
   const liveHistoryEntry: HistoryEntry | null = hasTodayProgress && liveWorkoutProgress ? {
     date: todayCalendarDate,
     blockName: workout.day || workout.name,
@@ -1293,7 +1325,7 @@ export default function DashboardPage() {
       <div style={S.body}>
         <div style={S.grid}>
           <div style={{ gridColumn: '1 / 3', gridRow: '1 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><WorkoutPanel workout={workout} onCompletionChange={setTodayWorkoutCompleted} onProgressChange={setLiveWorkoutProgress} /></div>
-          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', display: 'flex', overflow: 'hidden', minHeight: 0 }}><HistoryPanel historyEntries={historyEntries} highlightedDates={historyHighlightDates} liveEntry={liveHistoryEntry} autoSelectDate={hasTodayProgress ? todayCalendarDate : null} /></div>
+          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', display: 'flex', overflow: 'hidden', minHeight: 0 }}><HistoryPanel historyEntries={historyEntries} highlightedDates={historyHighlightDates} liveEntry={liveHistoryEntry} autoSelectDate={todayCalendarDate} todayWorkout={workout} /></div>
           <div style={{ gridColumn: '3 / 4', gridRow: '3 / 4', display: 'flex', overflow: 'hidden', minHeight: 0 }}><UpcomingPanel plan={plan} upcomingData={upcomingData} planBlocks={planBlocks} /></div>
           <div style={{ gridColumn: '1 / 2', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}><AttendancePanel consistency={consistency} /></div>
           <div style={{ gridColumn: '2 / 3', gridRow: '4 / 5', display: 'flex', overflow: 'hidden', minHeight: 0 }}>

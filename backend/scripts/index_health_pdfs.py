@@ -1,5 +1,5 @@
 """
-Index PDFs in backend/health_pdfs into Actian VectorAI DB.
+Index PDFs in health_pdfs into RAG (Actian VectorAI DB when available, else manifest-only).
 """
 
 from pathlib import Path
@@ -14,15 +14,19 @@ from rag_store import HealthRagStore
 
 def main() -> None:
     store = HealthRagStore()
-    if not store.is_available:
-        print("RAG dependencies missing. Install requirements and set OPENAI_API_KEY.")
-        print(f"Diagnostics: {store.diagnostics()}")
-        return
+    pdf_dir = store._cfg.pdf_dir
+    print(f"PDF directory: {pdf_dir}")
 
-    print(f"Diagnostics before indexing: {store.diagnostics()}")
-    count = store.index_pdfs()
-    print(f"Indexed {count} chunks.")
-    print(f"Diagnostics after indexing: {store.diagnostics()}")
+    if store.is_available:
+        print(f"Diagnostics before indexing: {store.diagnostics()}")
+        count = store.index_pdfs()
+        print(f"Indexed {count} chunks (Actian + manifest).")
+        print(f"Diagnostics after indexing: {store.diagnostics()}")
+    else:
+        print("Actian/OpenAI not available. Building manifest-only (chat fallback will use token search).")
+        print(f"Diagnostics: {store.diagnostics()}")
+        count = store.index_pdfs_manifest_only()
+        print(f"Indexed {count} chunks to {store._cfg.manifest_path}")
 
 
 if __name__ == "__main__":
