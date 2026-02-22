@@ -46,3 +46,19 @@ model ScheduledWorkout {
   @@index([userId])
   @@index([userId, startTime])
 }
+
+model WorkoutLog {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  exercise       String
+  setsCompleted  Int       @map("sets_completed")
+  totalReps      Int       @map("total_reps")
+  weightLbs      Float?    @map("weight_lbs")
+  avgScore       Float?    @map("avg_score")
+  bestScore      Int?      @map("best_score")
+  worstScore     Int?      @map("worst_score")
+  scores         Json?
+  injuryWarnings Int?      @default(0) @map("injury_warnings")
+
+  @@map("workout_logs")
+}

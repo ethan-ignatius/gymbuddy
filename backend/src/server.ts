@@ -9,6 +9,7 @@ import { webhooksRouter } from "./routes/webhooks.js";
 import { chatRouter } from "./routes/chat.js";
 import { voiceRouter } from "./routes/voice.js";
 import { poseTrackerRouter } from "./routes/poseTracker.js";
+import { liveSessionRouter } from "./routes/liveSession.js";
 import { sendPreWorkoutNudges, sendPostWorkoutCheckins, sendSleepReminders } from "./lib/nudge.js";
 import { startInboundSmsListener } from "./lib/inboundSms.js";
 import { setBaseUrl } from "./lib/voice.js";
@@ -25,6 +26,7 @@ app.use("/api/chat", chatRouter);
 app.use("/webhooks", webhooksRouter);
 app.use("/webhooks/voice", voiceRouter);
 app.use("/api/pose-tracker", poseTrackerRouter);
+app.use("/api/live-session", liveSessionRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });

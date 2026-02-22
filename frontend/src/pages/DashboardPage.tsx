@@ -1160,8 +1160,8 @@ export default function DashboardPage() {
           <div style={S.headerUser}>{headerName}</div>
           <div style={S.headerSub}>{headerSub}</div>
         </div>
-        <Link to="/pose-tracker" style={S.poseTrackerBtn}>
-          Pose Tracker
+        <Link to="/live-session" style={S.liveSessionBtn}>
+          Live Session
         </Link>
         <div style={S.planPills}>
           {(["strength", "hypertrophy", "custom"] as PlanType[]).map((p) => (
@@ -1254,7 +1254,7 @@ const S: Record<string, React.CSSProperties> = {
     color: "#e8c468",
   },
   headerCenter: { flex: 1 },
-  poseTrackerBtn: {
+  liveSessionBtn: {
     background: "rgba(232,196,104,0.1)",
     border: "1px solid rgba(232,196,104,0.3)",
     color: "#e8c468",

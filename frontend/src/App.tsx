@@ -1,9 +1,9 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
-import PoseTrackerPage from "./pages/PoseTrackerPage";
+import LiveSessionPage from "./pages/LiveSessionPage";
 
 export default function App() {
   return (
@@ -12,7 +12,8 @@ export default function App() {
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
-      <Route path="/pose-tracker" element={<PoseTrackerPage />} />
+      <Route path="/live-session" element={<LiveSessionPage />} />
+      <Route path="/pose-tracker" element={<Navigate to="/live-session" replace />} />
     </Routes>
   );
 }
