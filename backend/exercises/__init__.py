@@ -102,6 +102,11 @@ def draw_live_alerts(
 # ---------------------------------------------------------------------------
 
 
+INJURY_CRITICAL_SCORE = 25
+INJURY_BAD_SCORE = 40
+INJURY_CONSECUTIVE_LIMIT = 3
+
+
 class BaseTracker:
     """Common state and helpers shared by all exercise trackers."""
 
@@ -118,6 +123,8 @@ class BaseTracker:
         self.last_score: int = 0
         self.rep_scores: list[int] = []
         self._speech_queue: list[str] = []
+        self._consecutive_bad: int = 0
+        self.injury_warning: bool = False
 
     # --- Live alerts ---
 
@@ -150,6 +157,33 @@ class BaseTracker:
     def _build_speech_queue(issues: list[tuple[str, str]]) -> list[str]:
         voiced = [msg for msg, sev in issues if sev in (SEV_BAD, SEV_WARN)]
         return voiced if voiced else ["Good job!"]
+
+    def _check_injury_risk(self) -> None:
+        """Call after setting last_score and _speech_queue.  Tracks consecutive
+        bad reps and prepends an urgent voice warning when form is dangerous."""
+        score = self.last_score
+
+        if score <= INJURY_BAD_SCORE:
+            self._consecutive_bad += 1
+        else:
+            self._consecutive_bad = max(0, self._consecutive_bad - 1)
+
+        if score <= INJURY_CRITICAL_SCORE:
+            self.injury_warning = True
+            self._speech_queue.insert(
+                0,
+                "Warning! That rep had very poor form and could cause injury. "
+                "Lower the weight or fix your form before continuing.",
+            )
+        elif self._consecutive_bad >= INJURY_CONSECUTIVE_LIMIT:
+            self.injury_warning = True
+            self._speech_queue.insert(
+                0,
+                "Careful! Multiple reps with bad form. "
+                "You risk hurting yourself. Take a break or reduce the weight.",
+            )
+        else:
+            self.injury_warning = False
 
     @property
     def avg_score(self) -> float:

@@ -26,6 +26,8 @@ from exercises.lateral_raise import (
     update_trackers as update_raise_trackers,
     draw_panel as draw_raise_panel,
 )
+from llm_brain import LLMBrain, WorkoutContext
+from supabase_store import SupabaseStore, ExerciseLog
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -532,6 +534,7 @@ def draw_state_bar(
     frame: np.ndarray, state: str, session: "WorkoutSession | None",
     routine: "WorkoutRoutine | None",
     listener_active: bool, processing: bool,
+    voice_mode: str = "",
 ) -> None:
     fh, fw = frame.shape[:2]
     bar_h = 44
@@ -545,13 +548,23 @@ def draw_state_bar(
         cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_TEXT, 2, cv2.LINE_AA,
     )
 
+    right_x = fw - 14
     if listener_active:
         indicator = "Processing..." if processing else "Listening..."
         color = COLOR_WARN if processing else COLOR_GOOD
         text_size = cv2.getTextSize(indicator, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+        right_x = fw - text_size[0] - 14
         cv2.putText(
-            frame, indicator, (fw - text_size[0] - 14, fh - 16),
+            frame, indicator, (right_x, fh - 16),
             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA,
+        )
+
+    if voice_mode:
+        mode_size = cv2.getTextSize(voice_mode, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+        mx = right_x - mode_size[0] - 16
+        cv2.putText(
+            frame, voice_mode, (mx, fh - 16),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1, cv2.LINE_AA,
         )
 
 
@@ -658,6 +671,12 @@ def _go_idle() -> tuple[str, str, dict, "WorkoutSession | None", "WorkoutRoutine
     return STATE_IDLE, STATE_IDLE, {}, None, None
 
 
+def _respond(voice, llm_response: str | None, default: str, info: str = ""):
+    """Speak the LLM's response (or *default*) with optional appended *info*."""
+    base = llm_response or default
+    voice.say(f"{base} {info}".rstrip() if info else base)
+
+
 def _start_exercise(
     config: ExerciseConfig,
 ) -> tuple[str, dict, WorkoutSession]:
@@ -674,8 +693,8 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
     from voice_command import VoiceCommandListener
 
     voice = VoiceCoach()
-    listener = VoiceCommandListener(is_speaking_fn=lambda: voice.is_busy)
-    listener.start()
+    brain = LLMBrain()
+    db = SupabaseStore()
 
     download_model(POSE_MODEL_URL, POSE_MODEL_PATH)
     download_model(HAND_MODEL_URL, HAND_MODEL_PATH)
@@ -720,12 +739,49 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
     exercise_type = STATE_IDLE
     session: WorkoutSession | None = None
     routine: WorkoutRoutine | None = None
+    exercise_log: ExerciseLog | None = None
+
+    def get_workout_context() -> WorkoutContext:
+        """Build a context snapshot for the LLM (called from background thread)."""
+        ctx = WorkoutContext(state=state)
+        if state == STATE_IDLE:
+            ctx.available_commands = [
+                "start_workout", "start_bicep_curl", "start_lateral_raise",
+            ]
+        elif state == STATE_ANNOUNCE:
+            ctx.available_commands = ["ready", "skip", "stop"]
+            if routine and routine.current:
+                ctx.exercise = routine.current.display_name
+        elif state in (STATE_CURL, STATE_RAISE):
+            ctx.available_commands = ["stop"]
+            ctx.exercise = EXERCISE_NAMES.get(state, state)
+            if session:
+                ctx.current_set = session.current_set
+                ctx.total_sets = session.total_sets
+                ctx.target_reps = session.reps_per_set
+                ctx.reps = {s: t.reps for s, t in trackers.items()}
+        elif state == STATE_REST:
+            ctx.available_commands = ["stop"]
+            if session:
+                ctx.current_set = session.current_set
+                ctx.total_sets = session.total_sets
+                ctx.rest_remaining = session.rest_remaining
+        if routine:
+            ctx.routine_progress = routine.progress_str
+        return ctx
+
+    listener = VoiceCommandListener(
+        is_speaking_fn=lambda: voice.is_busy,
+        llm_brain=brain,
+        get_context_fn=get_workout_context,
+    )
+    listener.start()
 
     prev_time = time.time()
     fps = 0.0
     frame_ts = 0
 
-    print("GymBuddy ready. Say 'start workout' or an exercise name. Press 'q' to quit.")
+    print("GymBuddy ready. Say 'start workout' or an exercise name. Press 'q' to quit, 'm' to toggle voice mode.")
     voice.say("Gym Buddy ready. Say start workout to begin your routine.")
 
     while cap.isOpened():
@@ -737,11 +793,26 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
         h, w = frame.shape[:2]
 
         # --- Voice commands ---
-        cmd = listener.get_command()
+        result = listener.get_command()
+        cmd = result.intent if result else None
+        llm_resp = result.response if result else None
+
+        # Capture weight if the LLM extracted one from the user's speech
+        if result and result.weight_lbs is not None and exercise_log is not None:
+            exercise_log.weight_lbs = result.weight_lbs
+            print(f"[weight] Recorded: {result.weight_lbs} lbs")
+
+        # Pure conversation (no command intent) – speak the LLM response
+        if result and not cmd and llm_resp:
+            voice.say(llm_resp)
 
         if cmd == "stop":
             if state != STATE_IDLE:
-                voice.say("Workout stopped.")
+                if exercise_log and trackers:
+                    exercise_log.record_set(trackers)
+                    db.save_exercise_log(exercise_log)
+                exercise_log = None
+                _respond(voice, llm_resp, "Workout stopped.")
                 print("[state] -> IDLE (stopped)")
             state, exercise_type, trackers, session, routine = _go_idle()
 
@@ -749,21 +820,24 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
             if cmd == "start_workout":
                 import pathlib
                 if not pathlib.Path(workout_csv).exists():
-                    voice.say(f"Workout file not found.")
+                    _respond(voice, llm_resp, "Workout file not found.")
                     print(f"[error] {workout_csv} not found")
                 else:
                     routine = WorkoutRoutine.from_csv(workout_csv)
                     cfg = routine.advance()
                     if cfg:
                         state = STATE_ANNOUNCE
-                        voice.say(
-                            f"Starting workout. First up: {cfg.display_name}. "
+                        exercise_log = ExerciseLog(exercise=cfg.exercise)
+                        _respond(
+                            voice, llm_resp, "Starting workout.",
+                            f"First up: {cfg.display_name}. "
                             f"{cfg.sets} sets of {cfg.reps} reps. "
-                            f"Say start when ready, or skip to do it later."
+                            f"What weight are you using? "
+                            f"Say start when ready, or skip.",
                         )
                         print(f"[state] -> ANNOUNCE: {cfg.display_name}")
                     else:
-                        voice.say("Workout file is empty.")
+                        _respond(voice, llm_resp, "Workout file is empty.")
                         routine = None
 
             elif cmd in ("start_bicep_curl", "start_lateral_raise"):
@@ -772,34 +846,58 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                     exercise="bicep_curl" if exercise_type == STATE_CURL else "lateral_raise",
                     sets=3, reps=8, rest_seconds=60.0,
                 )
+                exercise_log = ExerciseLog(exercise=cfg.exercise)
+                if result and result.weight_lbs is not None:
+                    exercise_log.weight_lbs = result.weight_lbs
                 state, trackers, session = _start_exercise(cfg)
                 exercise_type = state
-                voice.say(f"Starting {cfg.display_name}. Set 1 of {cfg.sets}.")
+                _respond(
+                    voice, llm_resp,
+                    f"Starting {cfg.display_name}.",
+                    f"Set 1 of {cfg.sets}. Tell me the weight you're using anytime.",
+                )
                 print(f"[state] -> {cfg.display_name.upper()} (ad-hoc)")
 
         elif state == STATE_ANNOUNCE:
+            # Capture weight during ANNOUNCE even without an intent
+            if result and result.weight_lbs is not None and exercise_log is not None:
+                exercise_log.weight_lbs = result.weight_lbs
+
             is_go = cmd in ("ready", "start_bicep_curl", "start_lateral_raise")
             if is_go and routine and routine.current:
                 cfg = routine.current
+                if exercise_log is None:
+                    exercise_log = ExerciseLog(exercise=cfg.exercise)
                 state, trackers, session = _start_exercise(cfg)
                 exercise_type = state
-                voice.say(f"Let's go! {cfg.display_name}, set 1 of {cfg.sets}.")
+                weight_note = ""
+                if exercise_log.weight_lbs:
+                    weight_note = f" at {exercise_log.weight_lbs} lbs."
+                _respond(
+                    voice, llm_resp, "Let's go!",
+                    f"{cfg.display_name}, set 1 of {cfg.sets}{weight_note}",
+                )
                 print(f"[state] -> {cfg.display_name.upper()} (set 1/{cfg.sets})")
 
             elif cmd == "skip" and routine:
                 skipped = routine.current
+                exercise_log = None
                 routine.skip_current()
                 nxt = routine.advance()
                 if nxt:
                     state = STATE_ANNOUNCE
-                    voice.say(
-                        f"Skipped {skipped.display_name}, moved to later. "
+                    exercise_log = ExerciseLog(exercise=nxt.exercise)
+                    _respond(
+                        voice, llm_resp,
+                        f"Skipped {skipped.display_name}.",
                         f"Next: {nxt.display_name}. "
-                        f"{nxt.sets} sets of {nxt.reps}. Say start or skip."
+                        f"{nxt.sets} sets of {nxt.reps}. "
+                        f"What weight? Say start or skip.",
                     )
                     print(f"[state] -> ANNOUNCE: {nxt.display_name} (skipped {skipped.display_name})")
                 else:
-                    voice.say("No more exercises. Workout done!")
+                    _respond(voice, llm_resp, "No more exercises. Workout done!")
+                    exercise_log = None
                     state, exercise_type, trackers, session, routine = _go_idle()
 
         # --- Detection ---
@@ -847,7 +945,10 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                         voice.say(f"Rest over. Set {session.current_set} of {session.total_sets}. Let's go!")
                         print(f"[state] -> SET {session.current_set}/{session.total_sets}")
                     else:
-                        # All sets done for this exercise
+                        # All sets done for this exercise – save performance
+                        if exercise_log:
+                            db.save_exercise_log(exercise_log)
+                            exercise_log = None
                         if routine:
                             routine.complete_current()
                             nxt = routine.advance()
@@ -855,9 +956,11 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                                 state = STATE_ANNOUNCE
                                 session = None
                                 trackers = {}
+                                exercise_log = ExerciseLog(exercise=nxt.exercise)
                                 voice.say(
                                     f"Exercise complete! Next: {nxt.display_name}. "
                                     f"{nxt.sets} sets of {nxt.reps}. "
+                                    f"What weight are you using? "
                                     f"Say start when ready, or skip."
                                 )
                                 print(f"[state] -> ANNOUNCE: {nxt.display_name}")
@@ -871,6 +974,8 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                             state, exercise_type, trackers, session, routine = _go_idle()
 
             elif state in (STATE_CURL, STATE_RAISE) and session.check_set_complete(trackers):
+                if exercise_log:
+                    exercise_log.record_set(trackers)
                 session.begin_rest()
                 state = STATE_REST
                 voice.say(f"Set {session.current_set} done! Rest for {int(session.rest_seconds)} seconds.")
@@ -901,12 +1006,39 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
         elif state == STATE_ANNOUNCE and routine:
             draw_announce_overlay(frame, routine)
 
-        draw_state_bar(frame, state, session, routine, listener.is_listening, listener.is_processing)
+        # --- Injury warning banner ---
+        if state in (STATE_CURL, STATE_RAISE) and any(
+            t.injury_warning for t in trackers.values()
+        ):
+            fh, fw = frame.shape[:2]
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (0, 0), (fw, 48), (0, 0, 160), -1)
+            cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+            warn_text = "INJURY RISK - Fix your form or lower the weight!"
+            sz = cv2.getTextSize(warn_text, cv2.FONT_HERSHEY_SIMPLEX, 0.75, 2)[0]
+            tx = (fw - sz[0]) // 2
+            cv2.putText(
+                frame, warn_text, (tx, 33),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2, cv2.LINE_AA,
+            )
+
+        mode_label = "[LLM]" if listener.use_llm_only else "[Keyword]"
+        draw_state_bar(
+            frame, state, session, routine,
+            listener.is_listening, listener.is_processing,
+            voice_mode=mode_label,
+        )
         draw_hud(frame, fps, angles)
         cv2.imshow("GymBuddy - Pose Tracker", frame)
 
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("q"):
             break
+        elif key == ord("m"):
+            listener.use_llm_only = not listener.use_llm_only
+            tag = "LLM" if listener.use_llm_only else "Keyword"
+            print(f"[mode] Voice mode switched to: {tag}")
+            voice.say(f"Switched to {tag} mode.")
 
     listener.stop()
     pose_landmarker.close()

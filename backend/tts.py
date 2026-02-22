@@ -19,9 +19,9 @@ load_dotenv()
 # If ELEVENLABS_VOICE_ID is unset/empty, omit voice_id to use provider default.
 _VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID") or None
 # If ELEVENLABS_VOICE_MODEL is unset/empty, omit model_id to use provider default.
-_MODEL_ID = os.getenv("ELEVENLABS_VOICE_MODEL") or None
-_OUTPUT_FMT = "mp3_44100_128"
-_PAUSE_AFTER = 2.0  # seconds to wait after speech finishes
+_MODEL_ID = os.getenv("ELEVENLABS_VOICE_MODEL") or "eleven_turbo_v2_5"
+_OUTPUT_FMT = os.getenv("ELEVENLABS_OUTPUT_FORMAT") or "mp3_22050_32"
+_PAUSE_AFTER = float(os.getenv("ELEVENLABS_PAUSE_AFTER") or "0.5")
 
 
 class VoiceCoach:

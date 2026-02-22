@@ -6,7 +6,7 @@ __pycache__/
 node_modules/
 dist/
 
-# Environment secrets — never commit
+# Environment secrets - never commit
 .env
 .env.local
 .env.production
@@ -17,3 +17,7 @@ backend/prisma/migrations/**/migration_lock.toml
 # Frontend build
 frontend/node_modules/
 frontend/dist/
+
+# Local RAG cache/artifacts
+health_pdfs/.rag_cache.npz
+health_pdfs/.rag_manifest.json
