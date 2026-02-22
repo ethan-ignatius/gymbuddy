@@ -1,4 +1,4 @@
-# GymBuddy - Hackalytics 2026
+# GymBuddy
 
 GymBuddy combines:
 - A **real-time pose tracker** using [MediaPipe Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
