@@ -109,6 +109,12 @@ class SupabaseStore:
             target=self._insert, args=(row,), daemon=True,
         ).start()
 
+    def save_exercise_log_sync(self, log: ExerciseLog) -> None:
+        """Synchronous save for testing. Blocks until insert completes."""
+        if not self._client:
+            return
+        self._insert(log.to_row())
+
     def _insert(self, row: dict) -> None:
         try:
             self._client.table("workout_logs").insert(row).execute()

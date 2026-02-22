@@ -74,6 +74,58 @@ def _classify_text(text: str) -> str:
     return "unknown"
 
 
+def _sounds_like_addressing_gymbuddy(transcript: str) -> bool:
+    """True if transcript sounds like user is trying to say 'gym buddy' or address the app."""
+    if not transcript:
+        return False
+    t = transcript.lower().replace(",", " ").replace(".", " ")
+    t = re.sub(r"\s+", " ", t).strip()
+    # "gym buddy", "gym bud", "gymbuddy"
+    if re.search(r"gym\s*bud(dy)?|gymbuddy", t):
+        return True
+    # "joe jim", "jim joe" – common mishearing of "gym buddy"
+    if re.search(r"joe\s*jim|jim\s*joe", t):
+        return True
+    # "jim buddy", "jim bud"
+    if re.search(r"jim\s*bud(dy)?", t):
+        return True
+    # "hey gym", "okay gym" + "buddy" elsewhere
+    if "buddy" in t and re.search(r"(gym|jim|joe)", t):
+        return True
+    return False
+
+
+def _extract_weight_from_transcript(transcript: str) -> float | None:
+    """Extract weight in lbs from phrases like 'start 20 pounds', '20 lbs', '15 kilos'."""
+    if not transcript:
+        return None
+    lowered = transcript.lower().strip()
+    # e.g. "20 pounds", "20 lbs", "20 lb", "20.5 lbs"
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:pounds?|lbs?|lb)\b", lowered)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+    # e.g. "15 kilos", "15 kg"
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:kilos?|kgs?|kg)\b", lowered)
+    if m:
+        try:
+            return round(float(m.group(1)) * 2.2, 1)
+        except ValueError:
+            pass
+    # e.g. "start 20" or "ready 15" – number after command word
+    m = re.search(r"(?:start|ready|go|begin)\s+(\d+(?:\.\d+)?)", lowered)
+    if m:
+        try:
+            val = float(m.group(1))
+            if 1 <= val <= 500:
+                return val
+        except ValueError:
+            pass
+    return None
+
+
 def _wav_bytes_to_float32(wav_bytes: bytes) -> np.ndarray:
     """Convert WAV bytes (16-bit PCM) to float32 numpy array for Whisper."""
     buf = io.BytesIO(wav_bytes)
@@ -157,7 +209,7 @@ class VoiceCommandListener:
         with self._mic as source:
             self._recognizer.adjust_for_ambient_noise(source, duration=0.5)
         self._stop_listening = self._recognizer.listen_in_background(
-            self._mic, self._audio_callback, phrase_time_limit=3,
+            self._mic, self._audio_callback, phrase_time_limit=1.2,
         )
         self._is_listening = True
         print("Voice commands active. Speak to control your workout.")
@@ -216,9 +268,10 @@ class VoiceCommandListener:
             if not self.use_llm_only:
                 intent = _classify_text(transcript)
                 if intent != "unknown":
-                    print(f"[voice] Intent (keyword): {intent}")
+                    weight = _extract_weight_from_transcript(transcript)
+                    print(f"[voice] Intent (keyword): {intent}" + (f", weight={weight} lbs" if weight else ""))
                     self._command_queue.put(VoiceResult(
-                        intent=intent, transcript=transcript,
+                        intent=intent, transcript=transcript, weight_lbs=weight,
                     ))
                     return
 
@@ -230,13 +283,22 @@ class VoiceCommandListener:
                        if self._get_context_fn else WorkoutContext())
                 llm_resp = self._llm.process(transcript, ctx)
                 if llm_resp.intent == "ignore":
-                    print("[voice] Ignored (not directed at GymBuddy)")
+                    if _sounds_like_addressing_gymbuddy(transcript):
+                        print("[voice] Addressed Gym Buddy – responding")
+                        self._command_queue.put(VoiceResult(
+                            intent=None,
+                            transcript=transcript,
+                            response="I'm here! What would you like to do?",
+                        ))
+                    else:
+                        print("[voice] Ignored (not directed at GymBuddy)")
                     return
+                weight = llm_resp.weight_lbs or _extract_weight_from_transcript(transcript)
                 vr = VoiceResult(
                     intent=llm_resp.intent,
                     transcript=transcript,
                     response=llm_resp.response or None,
-                    weight_lbs=llm_resp.weight_lbs,
+                    weight_lbs=weight,
                 )
                 if vr.intent or vr.response:
                     self._command_queue.put(vr)
@@ -253,9 +315,10 @@ class VoiceCommandListener:
             else:
                 intent = _classify_text(transcript)
                 if intent != "unknown":
-                    print(f"[voice] Intent (keyword fallback): {intent}")
+                    weight = _extract_weight_from_transcript(transcript)
+                    print(f"[voice] Intent (keyword fallback): {intent}" + (f", weight={weight} lbs" if weight else ""))
                     self._command_queue.put(VoiceResult(
-                        intent=intent, transcript=transcript,
+                        intent=intent, transcript=transcript, weight_lbs=weight,
                     ))
                 else:
                     print("[voice] Intent: unknown (LLM unavailable)")

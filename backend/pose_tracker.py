@@ -5,6 +5,12 @@ Main container that handles webcam, MediaPipe detection, rendering, voice
 commands, and delegates exercise-specific analysis to modules in exercises/.
 """
 
+import sys
+from pathlib import Path
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 import time
 import math
 import cv2
@@ -832,8 +838,7 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                             voice, llm_resp, "Starting workout.",
                             f"First up: {cfg.display_name}. "
                             f"{cfg.sets} sets of {cfg.reps} reps. "
-                            f"What weight are you using? "
-                            f"Say start when ready, or skip.",
+                            f"Say start when ready, or start with your weight, like start 20 pounds. Skip to do later.",
                         )
                         print(f"[state] -> ANNOUNCE: {cfg.display_name}")
                     else:
@@ -854,7 +859,7 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                 _respond(
                     voice, llm_resp,
                     f"Starting {cfg.display_name}.",
-                    f"Set 1 of {cfg.sets}. Tell me the weight you're using anytime.",
+                    f"Set 1 of {cfg.sets}. Say your weight anytime, like 20 pounds.",
                 )
                 print(f"[state] -> {cfg.display_name.upper()} (ad-hoc)")
 
@@ -868,6 +873,8 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                 cfg = routine.current
                 if exercise_log is None:
                     exercise_log = ExerciseLog(exercise=cfg.exercise)
+                if result and result.weight_lbs is not None:
+                    exercise_log.weight_lbs = result.weight_lbs
                 state, trackers, session = _start_exercise(cfg)
                 exercise_type = state
                 weight_note = ""
@@ -892,7 +899,7 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                         f"Skipped {skipped.display_name}.",
                         f"Next: {nxt.display_name}. "
                         f"{nxt.sets} sets of {nxt.reps}. "
-                        f"What weight? Say start or skip.",
+                        f"Say start or start with weight, like start 20 pounds. Skip to do later.",
                     )
                     print(f"[state] -> ANNOUNCE: {nxt.display_name} (skipped {skipped.display_name})")
                 else:
@@ -960,8 +967,7 @@ def main(workout_csv: str = DEFAULT_WORKOUT) -> None:
                                 voice.say(
                                     f"Exercise complete! Next: {nxt.display_name}. "
                                     f"{nxt.sets} sets of {nxt.reps}. "
-                                    f"What weight are you using? "
-                                    f"Say start when ready, or skip."
+                                    f"Say start when ready, or start with your weight. Skip to do later."
                                 )
                                 print(f"[state] -> ANNOUNCE: {nxt.display_name}")
                             else:
