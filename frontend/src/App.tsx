@@ -4,6 +4,7 @@ import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import LiveSessionPage from "./pages/LiveSessionPage";
+import AnalyticsPage from "./pages/AnalyticsPage";
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/live-session" element={<LiveSessionPage />} />
       <Route path="/pose-tracker" element={<Navigate to="/live-session" replace />} />
+      <Route path="/analytics" element={<AnalyticsPage />} />
     </Routes>
   );
 }
